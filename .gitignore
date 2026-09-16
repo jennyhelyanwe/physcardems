@@ -1,0 +1,21 @@
+# external clones with their own history
+fenicsx-pulse/
+simcardemsx/
+fenicsx-beat/
+
+# data and generated geometry
+*.h5
+*.msh
+*.bp
+*.xdmf
+*.vtk
+*_dolfinx/
+time-dependent-bestel-biv/
+
+# run outputs
+rodero-dynamic*/
+*.log
+*.png
+*.csv
+nohup.out
+__pycache__/
