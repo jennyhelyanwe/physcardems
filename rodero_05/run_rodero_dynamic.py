@@ -12,6 +12,8 @@ from scipy.integrate import solve_ivp
 import circulation.bestel
 import cardiac_geometries.geometry
 import pulse
+import json
+import io4dolfinx
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("rodero")
@@ -21,10 +23,16 @@ comm = MPI.COMM_WORLD
 GEODIR = Path("./rodero_05_dolfinx")
 OUTDIR = Path("rodero-dynamic")
 
-PRESSURE_MODE = "ramp"   # "ramp": passive inflation test | "bestel": demo traces (use with ACTIVE)
-ACTIVE = False           # False holds Ta = 0
+CHECKPOINT_TIMES = [0.2]   # s; full dynamic state (u, v, a) written at these times
+RESTART_FROM = None        # e.g. Path("rodero-preload/checkpoint.bp")
+RESTART_TIME = 0.2         # s; must be one of the checkpoint times stored in RESTART_FROM
+
+PRESSURE_MODE = "ramp_active"   # "ramp" | "ramp_active" | "bestel"
+ACTIVE = True                   # False holds Ta = 0 in every mode
+T_END = 0.8                     # s, ramp modes only
+T_ACT_SHIFT = 0.1               # s; Bestel onset (t_sys = 0.16) lands at 0.26 s, after the plateau
+SIGMA_0 = 3e4                   # Pa, Bestel contractility (demo value is 1.5e5)
 DT = 2e-3                # s
-T_END = 0.4              # s, ramp mode only (bestel mode runs 0 to 1 s)
 T_RAMP = 0.2             # s
 P_LV_TARGET = 1.6e3      # Pa (about 12 mmHg)
 P_RV_TARGET = 0.5e3      # Pa (about 4 mmHg)
@@ -90,15 +98,67 @@ params["petsc_options"] = {
     "snes_lag_preconditioner_persists": True,
 }
 problem = pulse.problem.DynamicProblem(model=model, geometry=geometry, bcs=bcs, parameters=params)
-problem.solve()
+
+ckpt_path = OUTDIR / "checkpoint.bp"
+ckpt_keys = {round(float(tc), 6) for tc in CHECKPOINT_TIMES}
+ckpt_mode = [io4dolfinx.FileMode.write]  # first write creates the file, later ones append
+if comm.rank == 0:
+    (OUTDIR / "checkpoint_info.json").unlink(missing_ok=True)
+
+
+def write_checkpoint(t):
+    tkey = round(float(t), 6)
+    for name, f in (("u", problem.u), ("v", problem.v_old), ("a", problem.a_old)):
+        io4dolfinx.write_function_on_input_mesh(
+            ckpt_path, f, time=tkey, name=name, mode=ckpt_mode[0], backend="adios2"
+        )
+        ckpt_mode[0] = io4dolfinx.FileMode.append
+    if comm.rank == 0:
+        info_path = OUTDIR / "checkpoint_info.json"
+        info = json.loads(info_path.read_text()) if info_path.exists() else {"times": []}
+        info.update({
+            "dt": DT, "geometry": str(GEODIR), "pressure_mode": PRESSURE_MODE,
+            "T_ramp": T_RAMP, "P_lv_target": P_LV_TARGET, "P_rv_target": P_RV_TARGET,
+        })
+        info["times"] = sorted(set(info["times"]) | {tkey})
+        info_path.write_text(json.dumps(info, indent=2))
+        logger.info(f"Checkpoint written at t={tkey}")
+
+
+if RESTART_FROM is None:
+    problem.solve()
+    t_start = 0.0
+else:
+    RESTART_FROM = Path(RESTART_FROM)
+    assert RESTART_FROM.resolve().parent != OUTDIR.resolve(), \
+        "use a different OUTDIR for the restarted run, or the checkpoint gets overwritten"
+    info = json.loads((RESTART_FROM.parent / "checkpoint_info.json").read_text())
+    t_start = round(float(RESTART_TIME), 6)
+    if comm.rank == 0:
+        if t_start not in info["times"]:
+            raise ValueError(f"t={t_start} not in checkpoint times {info['times']}")
+        if not np.isclose(info["dt"], DT):
+            logger.warning(f"Checkpoint dt={info['dt']} differs from DT={DT}")
+    for name, f in (("u", problem.u), ("v", problem.v_old), ("a", problem.a_old)):
+        io4dolfinx.read_function(RESTART_FROM, f, time=t_start, name=name, backend="adios2")
+        f.x.scatter_forward()
+    problem.u_old.x.array[:] = problem.u.x.array
+    if comm.rank == 0:
+        logger.info(f"Restarted from {RESTART_FROM} at t={t_start}")
 
 # ------------------------------------------------------------------ load traces
-if PRESSURE_MODE == "ramp":
+if PRESSURE_MODE in ("ramp", "ramp_active"):
     times = DT * np.arange(1, int(round(T_END / DT)) + 1)
     w = 0.5 * (1.0 - np.cos(np.pi * np.clip(times / T_RAMP, 0.0, 1.0)))
     lv_pressure = P_LV_TARGET * w
     rv_pressure = P_RV_TARGET * w
     activation = np.zeros_like(times)
+    if PRESSURE_MODE == "ramp_active" and ACTIVE:
+        t_act = times - T_ACT_SHIFT
+        mask = t_act >= 0.0
+        act_model = circulation.bestel.BestelActivation(parameters={"sigma_0": SIGMA_0})
+        sol = solve_ivp(act_model, [0.0, t_act[mask][-1]], [0.0], t_eval=t_act[mask], method="Radau")
+        activation[mask] = sol.y[0]
 elif PRESSURE_MODE == "bestel":
     if not ACTIVE and comm.rank == 0:
         logger.warning("Bestel pressures reach about 16 kPa; without active tension the tissue will overinflate")
@@ -112,12 +172,17 @@ elif PRESSURE_MODE == "bestel":
         alpha_pre=1.0, alpha_mid=10.0, sigma_pre=3000.0, sigma_mid=4000.0))
     lv_pressure = solve_ivp(lv_model, t_span, [0.0], t_eval=times, method="Radau").y[0]
     rv_pressure = solve_ivp(rv_model, t_span, [0.0], t_eval=times, method="Radau").y[0]
-    activation = solve_ivp(circulation.bestel.BestelActivation(), t_span, [0.0],
-                           t_eval=times, method="Radau").y[0]
-    if not ACTIVE:
-        activation = np.zeros_like(times)
+    activation = np.zeros_like(times)
+    if ACTIVE:
+        activation = solve_ivp(circulation.bestel.BestelActivation(), t_span, [0.0],
+                               t_eval=times, method="Radau").y[0]
 else:
     raise ValueError(PRESSURE_MODE)
+
+keep = times > t_start + 1e-9
+times, lv_pressure, rv_pressure, activation = (
+    times[keep], lv_pressure[keep], rv_pressure[keep], activation[keep]
+)
 
 # ------------------------------------------------------------------ diagnostics
 X_ref = np.array([[0.25, 0.25, 0.25], [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
@@ -145,7 +210,7 @@ def volume(form):
 
 # ------------------------------------------------------------------ time loop
 vtx = dolfinx.io.VTXWriter(comm, OUTDIR / "displacement.bp", [problem.u], engine="BP4")
-vtx.write(0.0)
+vtx.write(t_start)
 
 log = []
 header = "t,p_lv_Pa,p_rv_Pa,Ta_Pa,V_lv_mL,V_rv_mL,newton_its,J_min,J_max,n_inverted"
@@ -166,6 +231,8 @@ for i, (t, plv, prv, tai) in enumerate(zip(times, lv_pressure, rv_pressure, acti
     Vlv, Vrv = volume(lv_volume_form) * 1e6, volume(rv_volume_form) * 1e6
     log.append([t, plv, prv, tai, Vlv, Vrv, nit, Jmin, Jmax, ninv])
     vtx.write(t)
+    if round(float(t), 6) in ckpt_keys:
+        write_checkpoint(t)
 
     if comm.rank == 0:
         logger.info(f"t={t:.3f} p_lv={plv:7.1f} p_rv={prv:7.1f} Pa | V_lv={Vlv:6.1f} V_rv={Vrv:6.1f} mL "
@@ -177,6 +244,8 @@ for i, (t, plv, prv, tai) in enumerate(zip(times, lv_pressure, rv_pressure, acti
             ax[0, 0].plot(arr[:, 0], arr[:, 1] / 1e3, label="LV")
             ax[0, 0].plot(arr[:, 0], arr[:, 2] / 1e3, label="RV")
             ax[0, 0].set_title("Pressure (kPa)")
+            ax0b = ax[0, 0].twinx()
+            ax0b.plot(arr[:, 0], arr[:, 3] / 1e3, "k--", label="Ta (kPa)")
             ax[0, 1].plot(arr[:, 0], arr[:, 4], label="LV")
             ax[0, 1].plot(arr[:, 0], arr[:, 5], label="RV")
             ax[0, 1].set_title("Volume (mL)")
