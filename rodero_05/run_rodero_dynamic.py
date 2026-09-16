@@ -21,15 +21,22 @@ comm = MPI.COMM_WORLD
 
 # ------------------------------------------------------------------ settings
 GEODIR = Path("./rodero_05_dolfinx")
-OUTDIR = Path("rodero-dynamic")
+# OUTDIR = Path("rodero-dynamic")
+OUTDIR = Path("rodero-preload")
 
-CHECKPOINT_TIMES = [0.2]   # s; full dynamic state (u, v, a) written at these times
-RESTART_FROM = None        # e.g. Path("rodero-preload/checkpoint.bp")
-RESTART_TIME = 0.2         # s; must be one of the checkpoint times stored in RESTART_FROM
 
-PRESSURE_MODE = "ramp_active"   # "ramp" | "ramp_active" | "bestel"
+# CHECKPOINT_TIMES = [0.2]   # s; full dynamic state (u, v, a) written at these times
+# RESTART_FROM = None        # e.g. Path("rodero-preload/checkpoint.bp")
+# RESTART_TIME = 0.2         # s; must be one of the checkpoint times stored in RESTART_FROM
+# PRESSURE_MODE = "ramp_active"   # "ramp" | "ramp_active" | "bestel"
+
+PRESSURE_MODE = "ramp"
+T_END = 0.2
+CHECKPOINT_TIMES = [0.2]
+RESTART_FROM = None
+
+
 ACTIVE = True                   # False holds Ta = 0 in every mode
-T_END = 0.8                     # s, ramp modes only
 T_ACT_SHIFT = 0.1               # s; Bestel onset (t_sys = 0.16) lands at 0.26 s, after the plateau
 SIGMA_0 = 3e4                   # Pa, Bestel contractility (demo value is 1.5e5)
 DT = 2e-3                # s
@@ -91,7 +98,7 @@ params["petsc_options"] = {
     "ksp_type": "gmres",
     "ksp_gmres_restart": 100,
     "ksp_max_it": 100,
-    "ksp_rtol": 1e-8,
+    "ksp_rtol": 1e-6,
     "ksp_atol": 1e-14,
     "ksp_converged_reason": None,
     "snes_lag_preconditioner": 20,

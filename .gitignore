@@ -17,5 +17,6 @@ rodero-dynamic*/
 *.log
 *.png
 *.csv
+*.npy
 nohup.out
 __pycache__/
