@@ -26,9 +26,15 @@ logger = logging.getLogger("cycle")
 comm = MPI.COMM_WORLD
 
 # ------------------------------------------------------------------ settings
-GEODIR = Path("/home/shared/rodero_05/rodero_05_dolfinx")
+GEODIR = Path("/home/shared/rodero_05/rodero_05_dolfinx_v2")
+OUTDIR = Path("rodero-cycle-valves")
+VALVE_STIFFNESS_SCALE = 3.0
+MYOCARDIUM_TAGS = (1, 2)   # 1 LV myo (incl. septum), 2 RV myo; 7-10 valve plugs
+RESTART_FROM = None
+
+# GEODIR = Path("/home/shared/rodero_05/rodero_05_dolfinx")
 # OUTDIR = Path("rodero-cycle")
-OUTDIR = Path("rodero-cycle-restart")
+# OUTDIR = Path("rodero-cycle-restart")
 
 DT = 2e-3                  # s
 T_END = 0.8                # s
@@ -43,7 +49,7 @@ ACT_DURATION = 0.324       # s, Bestel t_dias - t_sys
 
 CHECKPOINT_EVERY = 0.05    # s, plus a checkpoint at every phase transition
 # RESTART_FROM = None        # e.g. "rodero-cycle/checkpoints/t_0.1200" (no extension)
-RESTART_FROM = "rodero-cycle/checkpoints/t_0.5060"
+# RESTART_FROM = "rodero-cycle/checkpoints/t_0.5060"
 
 MMHG_S_PER_ML = 133.322 / 1e-6   # Pa s / m^3
 ML_PER_MMHG = 1e-6 / 133.322     # m^3 / Pa
@@ -77,12 +83,60 @@ for name, tag in TAGS.items():
 geometry = pulse.HeartGeometry.from_cardiac_geometries(geo, metadata={"quadrature_degree": QUAD_DEGREE})
 mesh = geometry.mesh
 
+# ------------------------------------------------------------------ tissue masks
+assert geo.cfun is not None, "geometry has no cell tags; use rodero_05_dolfinx_v2"
+DG0 = dolfinx.fem.functionspace(mesh, ("DG", 0))
+myo_mask = dolfinx.fem.Function(DG0, name="myocardium")
+stiffness_scale = dolfinx.fem.Function(DG0, name="stiffness_scale")
+tag_dofs = DG0.dofmap.list[geo.cfun.indices, 0]
+is_myo = np.isin(geo.cfun.values, MYOCARDIUM_TAGS)
+myo_mask.x.array[tag_dofs] = is_myo.astype(float)
+stiffness_scale.x.array[tag_dofs] = np.where(is_myo, 1.0, VALVE_STIFFNESS_SCALE)
+myo_mask.x.scatter_forward()
+stiffness_scale.x.scatter_forward()
+n_valve = comm.allreduce(int(np.sum(~is_myo[geo.cfun.indices < mesh.topology.index_map(3).size_local])), op=MPI.SUM)
+if comm.rank == 0:
+    logger.info(f"Valve plug cells: {n_valve} (Ta = 0, passive stiffness x{VALVE_STIFFNESS_SCALE})")
+
+
+class ScaledModel:
+    """Multiplies a pulse material or active model's stress and energy by a spatial field."""
+
+    def __init__(self, model, scale):
+        self._model = model
+        self._scale = scale
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+    def S(self, C, *args, **kwargs):
+        return self._scale * self._model.S(C, *args, **kwargs)
+
+    def P(self, F, *args, **kwargs):
+        return self._scale * self._model.P(F, *args, **kwargs)
+
+    def strain_energy(self, *args, **kwargs):
+        return self._scale * self._model.strain_energy(*args, **kwargs)
+
 # ------------------------------------------------------------------ model
-material = pulse.HolzapfelOgden(f0=geo.f0, s0=geo.s0, **pulse.HolzapfelOgden.orthotropic_parameters())  # type: ignore
+# material = pulse.HolzapfelOgden(f0=geo.f0, s0=geo.s0, **pulse.HolzapfelOgden.orthotropic_parameters())  # type: ignore
+# Ta = pulse.Variable(dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(0.0)), "Pa")
+# model = pulse.CardiacModel(
+#     material=material,
+#     active=pulse.ActiveStress(geo.f0, activation=Ta),
+#     compressibility=pulse.compressibility.Compressible2(),
+#     viscoelasticity=pulse.viscoelasticity.Viscous(),
+# )
+
+material = ScaledModel(
+    pulse.HolzapfelOgden(f0=geo.f0, s0=geo.s0, **pulse.HolzapfelOgden.orthotropic_parameters()),  # type: ignore
+    stiffness_scale,
+)
 Ta = pulse.Variable(dolfinx.fem.Constant(mesh, dolfinx.default_scalar_type(0.0)), "Pa")
+active = ScaledModel(pulse.ActiveStress(geo.f0, activation=Ta), myo_mask)
 model = pulse.CardiacModel(
     material=material,
-    active=pulse.ActiveStress(geo.f0, activation=Ta),
+    active=active,
     compressibility=pulse.compressibility.Compressible2(),
     viscoelasticity=pulse.viscoelasticity.Viscous(),
 )
