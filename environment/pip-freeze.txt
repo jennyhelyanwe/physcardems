@@ -1,4 +1,5 @@
 annotated-doc==0.0.5
+annotated-types==0.8.0
 asttokens==3.0.0
 attrs==26.1.0
 cardiac-geometries-core==1.5.0
@@ -19,6 +20,7 @@ fenics-basix @ file:///src/basix/python
 fenics-dolfinx @ file:///src/dolfinx/python
 fenics-ffcx @ file:///src/ffcx
 fenics-ufl @ file:///src/ufl
+-e git+https://github.com/finsberg/fenicsx-beat.git@0c455421b4f5b26b5dc4d1488ccdb04b5c831878#egg=fenicsx_beat
 fenicsx-ldrb==0.1.19
 -e git+https://github.com/finsberg/fenicsx-pulse.git@5dfeabca25bd7f28479741a1b2e965a01c83d01b#egg=fenicsx_pulse
 flexcache==0.3
@@ -49,6 +51,7 @@ nanobind==2.9.2
 numba==0.62.1
 numpy==2.2.6
 packaging==25.0
+pandas==3.0.5
 parso==0.8.5
 pathspec==0.12.1
 petsc4py @ file:///usr/local/petsc/src/binding/petsc4py
@@ -63,6 +66,9 @@ ptyprocess==0.7.0
 pure_eval==0.2.3
 pyamg==5.3.0
 pycparser==2.23
+pydantic==2.13.5
+pydantic-pint==0.5.0
+pydantic_core==2.46.5
 Pygments==2.19.2
 pyparsing==3.2.5
 pytest==8.4.2
@@ -76,13 +82,16 @@ scikit_build_core==0.11.6
 scipy==1.16.2
 setuptools==80.9.0
 shellingham==1.5.4
+-e git+https://github.com/ComputationalPhysiology/simcardemsx.git@0bccb0d02567add31f57a540972603cb95eaa080#egg=simcardemsx
 six==1.17.0
 slepc4py @ file:///usr/local/slepc/src/binding/slepc4py
 stack-data==0.6.3
 structlog==26.1.0
 sympy==1.14.0
+toml==0.10.2
 traitlets==5.14.3
 typer==0.27.2
+typing-inspection==0.4.4
 typing_extensions==4.16.0
 ukb_atlas==1.4.0
 urllib3==2.8.0
