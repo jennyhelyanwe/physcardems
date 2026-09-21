@@ -30,19 +30,16 @@ TODO
 
 Criteria are defined in `criteria.toml`. Each criterion specifies a biomarker, a reference range, units, a source, and whether it is used for calibration or validation. Simulations are scored by their normalised distance outside each reference range, so that near misses rank above large deviations. Importance profiles, either weighted or strictly tiered, allow populations to be ranked under different priorities.
 
-TODO: short usage example
 
 ## Automated tests
 
-TODO: tests folder and how to run them
-
-    python3 -m pytest tests -vv
+TODO: 
 
 ## Citing
 
 If you use `physcardems` in your research, please cite:
 
-TODO: BibTeX for Wang et al., eLife, and the Zenodo DOI for the version used
+https://elifesciences.org/reviewed-preprints/106555 This citation will be updated to the Version of Record once available. 
 
 Please also cite the packages it builds on: `simcardemsx`, `fenicsx-pulse` and `fenicsx-beat` (see their repositories for citation details).
 
