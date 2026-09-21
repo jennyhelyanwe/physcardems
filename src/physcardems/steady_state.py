@@ -20,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import gotranx
 
-import model_parameters as mp
+from physcardems import parameters as mp
 
 CELLTYPES = {0: "endo", 1: "epi", 2: "mid"}  # ToR-ORd convention
 

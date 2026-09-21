@@ -11,6 +11,9 @@ Parameters present in both halves (kws, kuw, rs, rw, phi) are set consistently.
 import hashlib
 import json
 
+from pathlib import Path
+ODEFILE = Path(__file__).resolve().parent / "data" / "ToRORd_dynCl_endo_zetasplit.ode"
+
 # Land parameters (Margara et al., PBMB), absolute values before scaling (.ode names)
 LAND_BASE = {
     "Trpn50": 0.35,

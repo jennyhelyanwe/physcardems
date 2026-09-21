@@ -21,7 +21,7 @@ With the valve closed, P_c drains through R_p (after the first ejection).
 import dataclasses
 import logging
 
-from cavity_control import set_preconditioner_lag
+from physcardems.cavity import set_preconditioner_lag
 
 logger = logging.getLogger(__name__)
 

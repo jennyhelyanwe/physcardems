@@ -20,7 +20,31 @@ The framework builds on [`simcardemsx`](https://github.com/ComputationalPhysiolo
 
 ## Installation
 
-TODO
+PhysCardEMS runs in the official FEniCSx Docker image (dolfinx v0.10.0). The tested package versions are recorded in `environment/`.
+
+1. Clone the repository and start the container from its root:
+
+```bash
+   git clone https://github.com/jennyhelyanwe/physcardems.git
+   cd physcardems
+   bash docker/start_docker.sh
+```
+
+   The repository is mounted at `/home/shared` inside the container. Running the same script again re-attaches to the existing container.
+
+2. Inside the container, install the dependencies and PhysCardEMS (once per container):
+
+```bash
+   bash docker/setup.sh
+```
+
+3. Run in parallel with MPI, for example:
+
+```bash
+   mpirun -n 4 python3 scripts/run_em.py --case cases/rodero_05/case.toml
+```
+
+On HPC systems without Docker, the same image can be run with Apptainer or Singularity.
 
 ## Getting started
 

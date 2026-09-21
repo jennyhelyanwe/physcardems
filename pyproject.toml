@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "physcardems"
+version = "0.1.0"
+description = "Physiological Cardiac Electro-Mechanics Solver"
+authors = [{ name = "Zhinuo Jenny Wang", email = "jenny.wang@citystgeorges.ac.uk" }]
+requires-python = ">=3.11"
+dependencies = ["numpy", "scipy", "pandas", "matplotlib", "h5py", "numba", "gotranx", "io4dolfinx"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+physcardems = ["data/*.ode", "data/*.toml"]

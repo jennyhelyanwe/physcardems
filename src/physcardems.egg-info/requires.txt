@@ -1,0 +1,8 @@
+numpy
+scipy
+pandas
+matplotlib
+h5py
+numba
+gotranx
+io4dolfinx

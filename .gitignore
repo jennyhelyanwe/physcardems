@@ -20,3 +20,16 @@ rodero-dynamic*/
 *.npy
 nohup.out
 __pycache__/
+
+# case folders: track only definitions, not data or outputs
+cases/*/*
+!cases/*/case.toml
+!cases/*/*.py
+!cases/*/README.md
+
+# run outputs
+runs/
+
+# IDE and OS files
+.idea/
+.DS_Store

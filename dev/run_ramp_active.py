@@ -18,8 +18,8 @@ logger = logging.getLogger("rodero")
 comm = MPI.COMM_WORLD
 
 # ------------------------------------------------------------------ settings
-GEODIR = Path("./rodero_05_dolfinx")
-OUTDIR = Path("rodero-dynamic")
+GEODIR = Path("../rodero_05/rodero_05_dolfinx")
+OUTDIR = Path("../rodero_05/rodero-dynamic")
 
 
 PRESSURE_MODE = "ramp_active"   # "ramp" | "ramp_active" | "bestel"

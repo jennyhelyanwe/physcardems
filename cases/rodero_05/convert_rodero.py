@@ -15,12 +15,12 @@ assert MPI.COMM_WORLD.size == 1, "run this serially"
 comm = MPI.COMM_WORLD
 
 fname = "rodero_05_coarse_4mm.h5"
-tv_file = "rodero_05_coarse_4mm_tv.npy"
-lat_file = "rodero_05_coarse_4mm_lat.csv"
-fine_xyz_file = "rodero_05_fine_xyz.csv"
-fine_ct_file = "rodero_05_fine_nodefield_cell-type.csv"
-fine_iks_file = "rodero_05_fine_nodefield_sf_IKs.csv"
-outdir = Path("rodero_05_dolfinx_v2")
+tv_file = "../../rodero_05/rodero_05_coarse_4mm_tv.npy"
+lat_file = "../../rodero_05/rodero_05_coarse_4mm_lat.csv"
+fine_xyz_file = "../../rodero_05/rodero_05_fine_xyz.csv"
+fine_ct_file = "../../rodero_05/rodero_05_fine_nodefield_cell-type.csv"
+fine_iks_file = "../../rodero_05/rodero_05_fine_nodefield_sf_IKs.csv"
+outdir = Path("../../rodero_05/rodero_05_dolfinx_v2")
 ep_fields_path = outdir / "ep_node_fields.bp"
 
 MM_TO_M = 1e-3

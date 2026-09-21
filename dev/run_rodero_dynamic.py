@@ -20,9 +20,9 @@ logger = logging.getLogger("rodero")
 comm = MPI.COMM_WORLD
 
 # ------------------------------------------------------------------ settings
-GEODIR = Path("./rodero_05_dolfinx")
+GEODIR = Path("../rodero_05/rodero_05_dolfinx")
 # OUTDIR = Path("rodero-dynamic")
-OUTDIR = Path("rodero-preload")
+OUTDIR = Path("../rodero_05/rodero-preload")
 
 
 # CHECKPOINT_TIMES = [0.2]   # s; full dynamic state (u, v, a) written at these times

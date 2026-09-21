@@ -17,8 +17,8 @@ import circulation.bestel
 import cardiac_geometries.geometry
 import pulse
 
-from cavity_control import ControlledCavityDynamicProblem, CavityMonitor
-from cycle_controller import (Phase, PHASE_NAMES, CycleParams, WindkesselParams,
+from physcardems.cavity import ControlledCavityDynamicProblem, CavityMonitor
+from physcardems.cycle import (Phase, PHASE_NAMES, CycleParams, WindkesselParams,
                               CavityState, BiVCycleController)
 
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +27,7 @@ comm = MPI.COMM_WORLD
 
 # ------------------------------------------------------------------ settings
 GEODIR = Path("/home/shared/rodero_05/rodero_05_dolfinx_v2")
-OUTDIR = Path("rodero-cycle-valves")
+OUTDIR = Path("../rodero_05/rodero-cycle-valves")
 VALVE_STIFFNESS_SCALE = 3.0
 MYOCARDIUM_TAGS = (1, 2)   # 1 LV myo (incl. septum), 2 RV myo; 7-10 valve plugs
 RESTART_FROM = None

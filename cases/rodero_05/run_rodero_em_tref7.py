@@ -23,11 +23,11 @@ import beat
 import pulse
 import cardiac_geometries.geometry
 
-from cavity_control import ControlledCavityDynamicProblem, CavityMonitor
-from cycle_controller import PHASE_NAMES, CycleParams, WindkesselParams, CavityState, BiVCycleController
-from zeta_active import ZetaSplitConstDt
-import model_parameters as mp
-import pseudo_ecg
+from physcardems.cavity import ControlledCavityDynamicProblem, CavityMonitor
+from physcardems.cycle import PHASE_NAMES, CycleParams, WindkesselParams, CavityState, BiVCycleController
+from physcardems.active import ZetaSplitConstDt
+from physcardems import parameters as mp
+from physcardems import ecg as pseudo_ecg
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("em")
@@ -39,8 +39,7 @@ DATA = Path("/home/shared/rodero_05")
 GEODIR = DATA / "rodero_05_dolfinx_v2"
 ODEFILE = Path("/home/shared/simcardemsx/numerical_experiments/odefiles/ToRORd_dynCl_endo_zetasplit.ode")
 ELECTRODES = DATA / "rodero_05_fine_nodefield_electrode_xyz.csv"
-# OUTDIR = Path("rodero-em-elife")
-OUTDIR = Path("rodero-em-tref3")
+OUTDIR = Path("rodero-em-tref7")
 
 DT_MECH_MS = 2.0
 DT_EP_MS = 0.05
@@ -72,7 +71,7 @@ KAPPA_PA = 1e6
 
 
 # Cell-model and Land parameters (Margara Land + eLife calibration, see model_parameters.py)
-LAND = mp.land_values()
+LAND = mp.land_values(scales={"kws": 3.86, "Tref": 7.0})
 PARAM_HASH = mp.parameter_hash(LAND)
 SSDIR = DATA / f"steady_state_pcl{int(PCL_MS)}_{PARAM_HASH}"
 
@@ -315,6 +314,39 @@ zs_p1, zw_p1, lam_p1 = dolfinx.fem.Function(W), dolfinx.fem.Function(W), dolfinx
 myo_dg1 = dolfinx.fem.Function(DG1)
 myo_dg1.interpolate(myo_mask)
 
+# ------------------------------------------------------------------ mid-ventricular slice (reference configuration)
+MID_SLICE = (0.45, 0.55)  # fraction of the apex-to-base distance
+tdim = mesh.topology.dim
+mesh.topology.create_connectivity(tdim - 1, 0)
+xg_ref = mesh.geometry.x
+base_centre = dolfinx.mesh.compute_midpoints(mesh, tdim - 1, geo.ffun.find(TAGS["BASE"])).mean(axis=0)
+lv_endo_nodes = np.unique(dolfinx.mesh.entities_to_geometry(mesh, tdim - 1, geo.ffun.find(TAGS["LV"])))
+apex = xg_ref[lv_endo_nodes[np.argmax(np.linalg.norm(xg_ref[lv_endo_nodes] - base_centre, axis=1))]]
+long_axis = base_centre - apex
+axis_length = np.linalg.norm(long_axis)
+long_axis /= axis_length
+
+n_cells_local = mesh.topology.index_map(tdim).size_local
+cell_centres = dolfinx.mesh.compute_midpoints(mesh, tdim, np.arange(n_cells_local, dtype=np.int32))
+s_axial = (cell_centres - apex) @ long_axis / axis_length
+tissue_cell = np.zeros(n_cells_local, dtype=np.int32)
+own = geo.cfun.indices < n_cells_local
+tissue_cell[geo.cfun.indices[own]] = geo.cfun.values[own]
+in_slice = (s_axial >= MID_SLICE[0]) & (s_axial <= MID_SLICE[1])
+dg1_cell_dofs = DG1.dofmap.list[:n_cells_local]
+slice_dofs = {m: np.unique(dg1_cell_dofs[in_slice & (tissue_cell == tag)].ravel())
+              for m, tag in (("LV", 1), ("RV", 2))}
+logger.info(f"Mid-ventricular slice {MID_SLICE}: apex-base {axis_length * 1e3:.1f} mm, "
+            f"LV cells {int(np.sum(in_slice & (tissue_cell == 1)))}, RV cells {int(np.sum(in_slice & (tissue_cell == 2)))}")
+
+
+def mid_slice_lambda():
+    lam = zeta.lmbda.x.array
+    out = []
+    for m in ("LV", "RV"):
+        vals = lam[slice_dofs[m]]
+        out += list(np.percentile(vals, [25, 50, 75])) if vals.size else [np.nan] * 3
+    return out
 
 def ep_to_mech():
     xs_p1.x.array[:] = ode.values[iXS]
@@ -487,13 +519,29 @@ write_outputs(t_start_ms)
 ecg.compute(t_start_ms)
 
 # ------------------------------------------------------------------ time loop
+# header = ("t_ms,Ta_max_kPa,lmbda_min,lmbda_max,phase_lv,V_lv_mL,P_lv_kPa,Pc_lv_kPa,"
+#           "phase_rv,V_rv_mL,P_rv_kPa,Pc_rv_kPa,newton_its,J_min,J_max,n_inverted,v_min,v_max,"
+#           "wall_ep_s,wall_s,Q_lv_mL_s,Q_rv_mL_s")
 header = ("t_ms,Ta_max_kPa,lmbda_min,lmbda_max,phase_lv,V_lv_mL,P_lv_kPa,Pc_lv_kPa,"
           "phase_rv,V_rv_mL,P_rv_kPa,Pc_rv_kPa,newton_its,J_min,J_max,n_inverted,v_min,v_max,"
-          "wall_ep_s,wall_s,Q_lv_mL_s,Q_rv_mL_s")
+          "wall_ep_s,wall_s,Q_lv_mL_s,Q_rv_mL_s,"
+          "lam_mid_lv_p25,lam_mid_lv_p50,lam_mid_lv_p75,lam_mid_rv_p25,lam_mid_rv_p50,lam_mid_rv_p75")
 log = []
 
-
 LEAD_ROWS = [["I", "II", "III", "aVR", "aVL", "aVF"], ["V1", "V2", "V3", "V4", "V5", "V6"]]
+
+
+def ejection_fraction(phase, vol):
+    """EDV at the latest switch into isovolumic contraction, ESV = lowest volume since."""
+    starts = np.where((phase[1:] == 1) & (phase[:-1] != 1))[0] + 1
+    if phase[0] == 1:
+        starts = np.r_[0, starts]
+    if len(starts) == 0:
+        return None
+    i0 = starts[-1]
+    edv, esv = vol[i0], vol[i0:].min()
+    return edv, esv, 100.0 * (edv - esv) / edv
+
 
 def save_plots(arr):
     np.savetxt(OUTDIR / "log.csv", arr, delimiter=",", header=header, comments="")
@@ -518,9 +566,16 @@ def save_plots(arr):
     axq.set_ylabel("outflow (mL/s)")
     axq.legend(loc="lower right")
     ax[0, 1].set_title("Volume (mL) and outflow (mL/s)")
+
     ax[0, 2].plot(arr[:, 5], arr[:, 6], label="LV")
     ax[0, 2].plot(arr[:, 9], arr[:, 10], label="RV")
-    ax[0, 2].set_title("PV loop (kPa vs mL)")
+    ef_text = []
+    for m, pcol, vcol in (("LV", 4, 5), ("RV", 8, 9)):
+        res = ejection_fraction(arr[:, pcol], arr[:, vcol])
+        ef_text.append(f"{m}EF --" if res is None
+                       else f"{m}EF {res[2]:.1f}% (EDV {res[0]:.1f}, ESV {res[1]:.1f} mL)")
+    ax[0, 2].set_title("PV loop | " + " | ".join(ef_text), fontsize=10)
+
     ax[1, 0].plot(t, arr[:, 1], "k", label="max Ta, myocardium (kPa)")
     axp = ax[1, 0].twinx()
     axp.step(t, arr[:, 4], where="post", label="LV phase")
@@ -531,9 +586,14 @@ def save_plots(arr):
     ax[1, 1].plot(t, arr[:, 13], label="J min")
     ax[1, 1].plot(t, arr[:, 14], label="J max")
     ax[1, 1].set_title("det F")
-    ax[1, 2].plot(t, arr[:, 2], label="lambda min")
-    ax[1, 2].plot(t, arr[:, 3], label="lambda max")
-    ax[1, 2].set_title("Fibre stretch, myocardium")
+
+    for j, (m, colour) in enumerate((("LV", "C0"), ("RV", "C1"))):
+        c0 = 22 + 3 * j
+        ax[1, 2].fill_between(t, arr[:, c0], arr[:, c0 + 2], color=colour, alpha=0.25)
+        ax[1, 2].plot(t, arr[:, c0 + 1], colour, label=f"{m} median (IQR shaded)")
+    ax[1, 2].axhline(1.0, color="0.6", linewidth=0.6)
+    ax[1, 2].set_title(f"Fibre stretch, mid-ventricular slice ({MID_SLICE[0]:.2f}-{MID_SLICE[1]:.2f} apex-base)")
+
     for a in ax.flat:
         a.legend(loc="best")
         a.set_xlabel("t (ms)")
@@ -604,7 +664,7 @@ for k in range(k0 + 1, n_total + 1):
                 lv["phase"], lv["V"] * 1e6, lv["P"] / 1e3, lv["P_art"] / 1e3,
                 rv["phase"], rv["V"] * 1e6, rv["P"] / 1e3, rv["P_art"] / 1e3,
                 nit, Jmin, Jmax, ninv, v.min(), v.max(), wall_ep, wall,
-                lv["Q"] * 1e6, rv["Q"] * 1e6])
+                lv["Q"] * 1e6, rv["Q"] * 1e6, *mid_slice_lambda()])
     if k % output_every == 0:
         write_outputs(t_ms)
 

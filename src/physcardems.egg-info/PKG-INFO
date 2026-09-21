@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: physcardems
+Version: 0.1.0
+Summary: Physiological Cardiac Electro-Mechanics Solver
+Author-email: Zhinuo Jenny Wang <jenny.wang@citystgeorges.ac.uk>
+Requires-Python: >=3.11
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: pandas
+Requires-Dist: matplotlib
+Requires-Dist: h5py
+Requires-Dist: numba
+Requires-Dist: gotranx
+Requires-Dist: io4dolfinx

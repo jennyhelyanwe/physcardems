@@ -11,7 +11,7 @@ import json
 import time as timer
 from pathlib import Path
 from scipy.spatial import cKDTree
-import pseudo_ecg
+from physcardems import ecg as pseudo_ecg
 
 import numpy as np
 from mpi4py import MPI
