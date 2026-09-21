@@ -64,8 +64,6 @@ A simulation combines three things, each defined in its own place:
 
 ### Case data
 
-### Case data
-
 The example case `cases/rodero_05/` includes the files needed to run it: the converted geometry, the electrode positions and the steady-state initial conditions for the default parameter set. The geometry is derived from the Rodero et al. virtual cohort (https://zenodo.org/records/4590294). Source files for regenerating the converted geometry are not included.
 ## Running a simulation
 
