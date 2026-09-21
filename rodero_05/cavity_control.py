@@ -51,6 +51,17 @@ class CavityControl:
 class ControlledCavityDynamicProblem(pulse.problem.DynamicProblem):
     controls: dict = field(default_factory=dict)
 
+    true_u_active: object = None  # active model evaluated at the true end-of-step displacement
+
+    def _material_form(self, u, v, p):
+        forms = super()._material_form(u, v, p)
+        if self.true_u_active is not None:
+            F = ufl.grad(self.u) + ufl.Identity(3)
+            C = F.T * F
+            var_C = ufl.grad(self.u_test).T * F + F.T * ufl.grad(self.u_test)
+            forms[0] += ufl.inner(self.true_u_active.S(C, dev=True), 0.5 * var_C) * self.geometry.dx
+        return forms
+
     def __post_init__(self):
         # constants must exist before the parent builds the forms
         self.controls = {cav.marker: CavityControl(self.geometry.mesh, cav.marker)

@@ -1,0 +1,23 @@
+[criteria.lvef]
+biomarker = "LVEF"
+lower = 0.0      # placeholder
+upper = 100.0    # placeholder
+units = "%"
+stage = "calibration"
+source = "Wang et al. eLife, Table X"
+
+[criteria.qrs]
+biomarker = "QRS_duration"
+lower = 0.0      # placeholder
+upper = 200.0    # placeholder
+units = "ms"
+stage = "calibration"
+
+[profiles.equal]
+
+[profiles.haemodynamics_first]
+weights = { lvef = 3.0 }
+default_weight = 1.0
+
+[profiles.strict_priority]
+tiers = [["lvef"], ["qrs"]]

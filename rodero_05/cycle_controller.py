@@ -6,9 +6,17 @@ in cavity_control.py. SI units: Pa, s, m^3.
 Phase -> constraint:
   PRELOAD             pressure: linear ramps (t_zero, then to t_end_diastole)
   ISOVOL_CONTRACTION  volume:   V = end_dia_vol
-  EJECTION            pressure: P = P_n - (V - V_n)/C - dt P_n/(R C)   (affine in V)
+  EJECTION            pressure: 3-element Windkessel, implicit (affine in V)
+                        Q   = -(V - V_n) / dt
+                        P_c = (P_c_n + dt Q / C) / (1 + dt / (R_p C))
+                        P_v = P_c + R_c Q
   ISOVOL_RELAXATION   volume:   V = end_sys_vol
-  FILLING             pressure: fill-rate or filling_gain law (affine in V)
+  FILLING             volume:   V = V_n + filling_rate dt   (if filling_rate is set)
+                      pressure: legacy fill-rate or filling_gain law (otherwise)
+
+Valve opening: P_v > ejection_pressure if set (P_c is then reset to P_v), else P_v > P_c.
+Valve closing: outflow stops or P_v < P_c, after min_ejection_duration.
+With the valve closed, P_c drains through R_p (after the first ejection).
 """
 import dataclasses
 import logging
@@ -31,10 +39,11 @@ PHASE_NAMES = {0: "PRELOAD", 1: "IVC", 2: "EJECTION", 3: "IVR", 4: "FILLING"}
 
 @dataclasses.dataclass
 class WindkesselParams:
-    p_init: float        # Pa
-    compliance: float    # m^3 / Pa
-    resistance: float    # Pa s / m^3
-    evolve: bool = True
+    p_init: float                          # Pa, compliance pressure at t = 0
+    compliance: float                      # m^3 / Pa
+    resistance: float                      # Pa s / m^3, peripheral resistance R_p
+    characteristic_impedance: float = 0.0  # Pa s / m^3, series R_c (0 gives a 2-element model)
+    evolve: bool = True                    # False holds P_c at p_init outside ejection
 
 
 @dataclasses.dataclass
@@ -46,11 +55,14 @@ class CycleParams:
     p_fill: float                 # Pa
     period: float                 # s
     windkessel: WindkesselParams
-    gain_relaxation: tuple = (0.0, 0.0)   # (Pa / m^3, Pa s / m^3); legacy values need converting
+    ejection_pressure: float | None = None  # Pa; valve-opening threshold (eLife "ejection pressure")
+    filling_rate: float | None = None       # m^3 / s; prescribed inflow during filling
+    gain_relaxation: tuple = (0.0, 0.0)     # (Pa / m^3, Pa s / m^3); legacy values need converting
     filling_gain: bool = False
-    min_phase_duration: float = 0.05      # s (Alya's 0.05)
-    dvol_eps: float = 1e-10               # m^3 (0.1 mm^3); flow-reversal threshold ending ejection
-    min_fill_rate: float = -5e14          # Pa / m^3 (legacy -500 kPa/mm^3)
+    min_phase_duration: float = 0.05        # s (Alya's 0.05)
+    min_ejection_duration: float = 0.01     # s
+    dvol_eps: float = 1e-10                 # m^3 per step; outflow below this closes the valve
+    min_fill_rate: float = -5e14            # Pa / m^3 (legacy -500 kPa/mm^3)
 
 
 @dataclasses.dataclass
@@ -66,7 +78,9 @@ class CavityState:
     dvol_n: float = 0.0
     pressure_n: float = 0.0
     pressure_n_minus_1: float = 0.0
-    wdk_pressure_n: float = 0.0
+    wdk_pressure_n: float = 0.0   # compliance (arterial) pressure P_c
+    outflow_n: float = 0.0        # m^3 / s, positive out of the ventricle
+    has_ejected: bool = False
     ini_vol: float = 0.0
     end_preload_vol: float = 0.0
     end_dia_vol: float = 0.0
@@ -93,13 +107,17 @@ def apply_controls(state: CavityState, ctl, t: float, dt: float) -> None:
         ctl.set_volume(state.end_dia_vol)
     elif state.phase == Phase.EJECTION:
         wk = p.windkessel
-        A = (state.wdk_pressure_n + state.volume_n / wk.compliance
-             - dt * state.wdk_pressure_n / (wk.resistance * wk.compliance))
-        ctl.set_affine_pressure(A, -1.0 / wk.compliance)
+        D = 1.0 + dt / (wk.resistance * wk.compliance)
+        Rc = wk.characteristic_impedance
+        A = state.wdk_pressure_n / D + state.volume_n / (wk.compliance * D) + Rc * state.volume_n / dt
+        B = -(1.0 / (wk.compliance * D) + Rc / dt)
+        ctl.set_affine_pressure(A, B)
     elif state.phase == Phase.ISOVOL_RELAXATION:
         ctl.set_volume(state.end_sys_vol)
     elif state.phase == Phase.FILLING:
-        if p.filling_gain:
+        if p.filling_rate is not None:
+            ctl.set_volume(state.volume_n + p.filling_rate * dt)
+        elif p.filling_gain:
             g0, g1 = p.gain_relaxation
             if state.volume_n > state.end_preload_vol:
                 ctl.set_pressure(state.pressure_n - g0 * (state.volume_n - state.end_preload_vol))
@@ -116,6 +134,22 @@ def apply_controls(state: CavityState, ctl, t: float, dt: float) -> None:
         raise ValueError(f"Unknown phase {state.phase}")
 
 
+def update_windkessel(state: CavityState, V: float, dt: float) -> None:
+    """Advance the arterial state over a converged step. Call before commit_step."""
+    wk = state.params.windkessel
+    D = 1.0 + dt / (wk.resistance * wk.compliance)
+    if state.phase == Phase.EJECTION:
+        Q = -(V - state.volume_n) / dt
+        state.wdk_pressure_n = (state.wdk_pressure_n + dt * Q / wk.compliance) / D
+        state.outflow_n = Q
+    else:
+        state.outflow_n = 0.0
+        if not wk.evolve:
+            state.wdk_pressure_n = wk.p_init
+        elif state.has_ejected:
+            state.wdk_pressure_n /= D  # valve closed: compliance drains through R_p
+
+
 def commit_step(state: CavityState, V: float, P: float) -> None:
     state.dvol_n = V - state.volume_n
     state.volume_n_minus_1 = state.volume_n
@@ -130,11 +164,20 @@ def advance_phase(state: CavityState, t: float) -> None:
     if (state.phase == Phase.PRELOAD
             and t >= state.n_beats * p.period + p.t_end_diastole and t >= p.t_zero):
         state.phase, state.last_phase_change = Phase.ISOVOL_CONTRACTION, t
-    elif state.phase == Phase.ISOVOL_CONTRACTION and state.pressure_n > state.wdk_pressure_n:
-        state.phase, state.last_phase_change = Phase.EJECTION, t
-    elif (state.phase == Phase.EJECTION and state.dvol_n > p.dvol_eps
-          and since > p.min_phase_duration and state.volume_n < 0.99 * state.end_dia_vol):
-        state.phase, state.last_phase_change = Phase.ISOVOL_RELAXATION, t
+    elif state.phase == Phase.ISOVOL_CONTRACTION:
+        threshold = p.ejection_pressure if p.ejection_pressure is not None else state.wdk_pressure_n
+        if state.pressure_n > threshold:
+            state.phase, state.last_phase_change = Phase.EJECTION, t
+            state.has_ejected = True
+            if p.ejection_pressure is not None:
+                state.wdk_pressure_n = state.pressure_n  # ideal valve: outflow starts from zero
+    elif state.phase == Phase.EJECTION and since > p.min_ejection_duration:
+        outflow_stopped = state.dvol_n > -p.dvol_eps
+        pressure_below_arterial = state.pressure_n < state.wdk_pressure_n
+        if outflow_stopped or pressure_below_arterial:
+            state.phase, state.last_phase_change = Phase.ISOVOL_RELAXATION, t
+            logger.info(f"{state.name}: valve closes (outflow stopped={outflow_stopped}, "
+                        f"P below P_c={pressure_below_arterial})")
     elif state.phase == Phase.ISOVOL_RELAXATION and state.pressure_n < p.p_fill:
         state.phase, state.last_phase_change, state.phase_counter = Phase.FILLING, t, 0
     elif state.phase == Phase.FILLING:
@@ -205,9 +248,10 @@ class BiVCycleController:
             apply_controls(s, self.problem.controls[m], t, dt)
         self._solve_with_retry(snap)
 
-        # legacy clamp: filling pressure not below the preload pressure
+        # legacy clamp (pressure-driven filling only): filling pressure not below the preload pressure
         clamp = [m for m, s in self.states.items()
-                 if s.phase == Phase.FILLING and not s.params.filling_gain
+                 if s.phase == Phase.FILLING and s.params.filling_rate is None
+                 and not s.params.filling_gain
                  and self.monitor.pressure(m) < s.params.preload_pressure]
         if clamp:
             self._restore(snap)
@@ -224,10 +268,7 @@ class BiVCycleController:
                 s.end_dia_vol = V
                 if t <= s.params.t_zero:
                     s.end_preload_vol = V
-            if s.phase == Phase.EJECTION:
-                s.wdk_pressure_n = P       # cavity pressure equals arterial pressure while ejecting
-            elif not s.params.windkessel.evolve:
-                s.wdk_pressure_n = s.params.windkessel.p_init
+            update_windkessel(s, V, dt)
             commit_step(s, V, P)
             old = s.phase
             advance_phase(s, t)
@@ -238,7 +279,7 @@ class BiVCycleController:
                 elif s.phase == Phase.ISOVOL_RELAXATION:
                     s.end_sys_vol = V
                 logger.info(f"{m}: {PHASE_NAMES[old]} -> {PHASE_NAMES[s.phase]} at t={t:.4f} s, "
-                            f"V={V * 1e6:.1f} mL, P={P / 1e3:.3f} kPa")
-            out[m] = dict(phase=s.phase, V=V, P=P, P_art=s.wdk_pressure_n)
+                            f"V={V * 1e6:.1f} mL, P={P / 1e3:.3f} kPa, P_c={s.wdk_pressure_n / 1e3:.3f} kPa")
+            out[m] = dict(phase=s.phase, V=V, P=P, P_art=s.wdk_pressure_n, Q=s.outflow_n)
         self._refactor = self._refactor or changed
         return out
