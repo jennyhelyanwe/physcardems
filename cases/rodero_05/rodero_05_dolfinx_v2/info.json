@@ -1,0 +1,7 @@
+{
+    "source": "rodero_05_coarse_4mm.h5",
+    "units": "m",
+    "fibre_space": "DG_0",
+    "cell_tags": "tissue type (1 LV myo, 2 RV myo, 7-10 valve plugs)",
+    "ep_node_fields": "ep_node_fields.bp: lat_ms, celltype (ToR-ORd 0 endo 1 epi 2 mid), sf_IKs"
+}
