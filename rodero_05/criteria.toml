@@ -1,23 +1,401 @@
+# criteria.toml
+# Healthy female reference ranges. Units as stated per criterion.
+# Pressures converted from Barye (1 kPa = 10000 Ba).
+
+# ---------- Pressure-volume ----------
+[criteria.edvl]
+biomarker = "EDVL"
+lower = 88
+upper = 161
+units = "mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
+
+[criteria.esvl]
+biomarker = "ESVL"
+lower = 31
+upper = 68
+units = "mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
+
+[criteria.svl]
+biomarker = "SVL"
+lower = 49
+upper = 100
+units = "mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
+
 [criteria.lvef]
 biomarker = "LVEF"
-lower = 0.0      # placeholder
-upper = 100.0    # placeholder
+lower = 51
+upper = 70
 units = "%"
+group = "pressure_volume"
 stage = "calibration"
-source = "Wang et al. eLife, Table X"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
 
-[criteria.qrs]
-biomarker = "QRS_duration"
-lower = 0.0      # placeholder
-upper = 200.0    # placeholder
+[criteria.edvr]
+biomarker = "EDVR"
+lower = 85
+upper = 166
+units = "mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
+
+[criteria.esvr]
+biomarker = "ESVR"
+lower = 27
+upper = 77
+units = "mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
+
+[criteria.svr]
+biomarker = "SVR"
+lower = 48
+upper = 99
+units = "mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
+
+[criteria.rvef]
+biomarker = "RVEF"
+lower = 47
+upper = 68
+units = "%"
+group = "pressure_volume"
+stage = "calibration"
+source = "UKB female, https://jcmr-online.biomedcentral.com/articles/10.1186/s12968-017-0327-9/tables/3"
+
+[criteria.edpl]
+biomarker = "EDPL"
+lower = 0.5
+upper = 1.5
+units = "kPa"
+group = "pressure_volume"
+stage = "calibration"
+source = "+/- SEM, https://link.springer.com/article/10.1007/s12265-018-9816-y/tables/1"
+
+[criteria.pmaxl]
+biomarker = "PmaxL"
+lower = 14.3
+upper = 15.3
+units = "kPa"
+group = "pressure_volume"
+stage = "calibration"
+source = "+/- SEM, https://link.springer.com/article/10.1007/s12265-018-9816-y/tables/1"
+
+[criteria.pmaxr]
+biomarker = "PmaxR"
+lower = 2.8
+upper = 3.6
+units = "kPa"
+group = "pressure_volume"
+stage = "calibration"
+source = "+/- SD, https://www.sciencedirect.com/science/article/pii/016752739190221A"
+
+[criteria.dvdt_ejection]
+biomarker = "dvdt_ejection"
+lower = 308
+upper = 512
+units = "mL/s"
+group = "pressure_volume"
+stage = "calibration"
+source = "+/- SD, MRI, https://www.sciencedirect.com/science/article/pii/S0894731702744702"
+
+[criteria.dvdt_filling]
+biomarker = "dvdt_filling"
+lower = 251
+upper = 471
+units = "mL/s"
+group = "pressure_volume"
+stage = "calibration"
+source = "+/- SD, MRI, https://www.sciencedirect.com/science/article/pii/S0894731702744702"
+
+[criteria.dpdt_max]
+biomarker = "dpdt_max"
+lower = 90
+upper = 210
+units = "kPa/s"
+group = "pressure_volume"
+stage = "calibration"
+source = "https://academic.oup.com/europace/article/13/7/984/446139"
+# CHECK: source range 895-1347 mmHg/s converts to ~119-180 kPa/s
+
+[criteria.espvr]
+biomarker = "espvr"
+lower = 2.6
+upper = 3.6
+units = "mmHg/mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "https://www.ahajournals.org/doi/epdf/10.1161/01.CIR.65.5.988"
+
+[criteria.edpvr_a_klotz]
+biomarker = "edpvr_a_klotz"
+lower = 28.2
+upper = 28.2
+units = "mmHg/mL"
+group = "pressure_volume"
+stage = "calibration"
+source = "https://journals.physiology.org/doi/full/10.1152/ajpheart.01240.2005"
+# point target: consider setting an explicit scale
+
+[criteria.edpvr_b_klotz]
+biomarker = "edpvr_b_klotz"
+lower = 2.79
+upper = 2.79
+units = ""
+group = "pressure_volume"
+stage = "calibration"
+source = "https://journals.physiology.org/doi/full/10.1152/ajpheart.01240.2005"
+# point target: consider setting an explicit scale
+
+[criteria.edpvr_v_intercept]
+biomarker = "edpvr_v_intercept"
+lower = 0
+upper = 0
+units = "mL"
+group = "pressure_volume"
+stage = "calibration"
+source = ""
+# point target with zero value: needs an explicit scale
+
+# ---------- Deformation ----------
+[criteria.es_ed_avpd]
+biomarker = "es_ed_avpd"
+lower = 1.4
+upper = 1.9
+units = "cm"
+group = "deformation"
+stage = "calibration"
+source = "https://journals.physiology.org/doi/full/10.1152/ajpheart.01148.2006; lower bound https://heart.bmj.com/content/heartjnl/78/3/230.full.pdf"
+
+[criteria.es_ed_apical_displacement]
+biomarker = "es_ed_apical_displacement"
+lower = -0.001
+upper = 0.51
+units = "cm"
+group = "deformation"
+stage = "calibration"
+source = "https://journals.physiology.org/doi/full/10.1152/ajpheart.01148.2006"
+
+[criteria.ed_wall_thickness]
+biomarker = "ED_wall_thickness"
+lower = 0.571
+upper = 1.381
+units = "cm"
+group = "deformation"
+stage = "calibration"
+source = "17 AHA regions, https://www.sciencedirect.com/science/article/pii/S1361841519300489"
+
+[criteria.es_wall_thickness]
+biomarker = "ES_wall_thickness"
+lower = 1.07
+upper = 1.749
+units = "cm"
+group = "deformation"
+stage = "calibration"
+source = "17 AHA regions, https://www.sciencedirect.com/science/article/pii/S1361841519300489"
+
+[criteria.diff_lv_wall_thickness]
+biomarker = "diff_lv_wall_thickness"
+lower = 0.084
+upper = 0.429
+units = "cm"
+group = "deformation"
+stage = "calibration"
+source = "17 AHA regions, https://www.sciencedirect.com/science/article/pii/S1361841519300489"
+
+# ---------- Strain / stretch ----------
+[criteria.peak_lambda]
+biomarker = "peak_lambda"
+lower = 1.1
+upper = 1.3
+units = ""
+group = "strain"
+stage = "calibration"
+source = "REF NEEDED"
+
+[criteria.lambda_endo]
+biomarker = "lambda_endo"
+lower = 0.85
+upper = 0.88
+units = ""
+group = "strain"
+stage = "calibration"
+source = "https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.28724"
+
+[criteria.lambda_mid]
+biomarker = "lambda_mid"
+lower = 0.85
+upper = 0.88
+units = ""
+group = "strain"
+stage = "calibration"
+source = "https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.28724"
+
+[criteria.lambda_epi]
+biomarker = "lambda_epi"
+lower = 0.85
+upper = 0.86
+units = ""
+group = "strain"
+stage = "calibration"
+source = "https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.28724"
+
+[criteria.cross_lambda_endo]
+biomarker = "cross_lambda_endo"
+lower = 0.79
+upper = 0.81
+units = ""
+group = "strain"
+stage = "calibration"
+source = "https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.28724"
+
+[criteria.cross_lambda_mid]
+biomarker = "cross_lambda_mid"
+lower = 0.83
+upper = 0.86
+units = ""
+group = "strain"
+stage = "calibration"
+source = "https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.28724"
+
+[criteria.cross_lambda_epi]
+biomarker = "cross_lambda_epi"
+lower = 0.88
+upper = 0.9
+units = ""
+group = "strain"
+stage = "calibration"
+source = "https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.28724"
+
+[criteria.max_four_chamber_ell]
+biomarker = "max_four_chamber_Ell"
+lower = -0.16
+upper = -0.16
+units = ""
+group = "strain"
+stage = "calibration"
+source = "REF NEEDED"
+# zero-width range: acts as point target
+
+[criteria.max_mid_err]
+biomarker = "max_mid_Err"
+lower = 0.22
+upper = 0.29
+units = ""
+group = "strain"
+stage = "calibration"
+source = "REF NEEDED"
+
+[criteria.max_mid_ecc]
+biomarker = "max_mid_Ecc"
+lower = -0.14
+upper = -0.08
+units = ""
+group = "strain"
+stage = "calibration"
+source = "REF NEEDED"
+
+# ---------- ECG ----------
+[criteria.qrs_dur]
+biomarker = "qrs_dur_mean"
+lower = 77
+upper = 91
 units = "ms"
+group = "ecg"
 stage = "calibration"
+source = "UKB IQR, https://academic.oup.com/ehjdh/article/4/4/316/7188159"
 
+[criteria.qt_dur]
+biomarker = "qt_dur_mean"
+lower = 378
+upper = 419
+units = "ms"
+group = "ecg"
+stage = "calibration"
+source = "UKB IQR, https://www.ahajournals.org/doi/full/10.1161/CIRCGEN.120.003231 (Table 1)"
+
+[criteria.jt_dur]
+biomarker = "jt_dur_mean"
+lower = 294
+upper = 335
+units = "ms"
+group = "ecg"
+stage = "calibration"
+source = "UKB IQR, https://www.ahajournals.org/doi/full/10.1161/CIRCGEN.120.003231 (Table 1)"
+
+[criteria.t_pe]
+biomarker = "t_pe_mean"
+lower = 50
+upper = 72
+units = "ms"
+group = "ecg"
+stage = "calibration"
+source = "UKB IQR, https://www.ahajournals.org/doi/10.1161/JAHA.121.025897 (supplement)"
+
+[criteria.t_dur]
+biomarker = "t_dur_mean"
+lower = 100
+upper = 114
+units = "ms"
+group = "ecg"
+stage = "calibration"
+source = "UKB IQR, https://academic.oup.com/ehjdh/article/4/4/316/7188159"
+
+# ---------- Single cell (Passini et al. 2019, Table 2) ----------
+[criteria.apd90]
+biomarker = "apd90"
+lower = 0.180
+upper = 0.440
+units = "s"
+group = "cell"
+stage = "cell"
+source = "https://doi.org/10.1111/bph.14786"
+
+[criteria.catd90]
+biomarker = "CaTD90"
+lower = 0.220
+upper = 0.785
+units = "s"
+group = "cell"
+stage = "cell"
+source = "https://doi.org/10.1111/bph.14786"
+
+[criteria.rmp]
+biomarker = "rmp"
+lower = -95
+upper = -80
+units = "mV"
+group = "cell"
+stage = "cell"
+source = "https://doi.org/10.1111/bph.14786"
+
+[criteria.vpeak]
+biomarker = "vpeak"
+lower = 10
+upper = 200
+units = "mV"
+group = "cell"
+stage = "cell"
+source = "https://doi.org/10.1111/bph.14786"
+
+# ---------- Importance profiles ----------
 [profiles.equal]
 
-[profiles.haemodynamics_first]
-weights = { lvef = 3.0 }
-default_weight = 1.0
-
 [profiles.strict_priority]
-tiers = [["lvef"], ["qrs"]]
+tiers = [
+  ["lvef", "edvl", "esvl", "rvef"],
+  ["qrs_dur", "qt_dur"],
+  ["es_ed_avpd", "ed_wall_thickness", "es_wall_thickness"],
+]
