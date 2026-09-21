@@ -1,0 +1,17 @@
+# rodero_05: biventricular geometry from the Rodero et al. virtual cohort
+# Paths are relative to this file.
+name = "rodero_05"
+
+[geometry]
+dir = "rodero_05_dolfinx_v2"        # converted dolfinx geometry (cell tags, fibres, node fields)
+myocardium_cell_tags = [1, 2]
+
+[geometry.tags]                     # facet tags
+LV = 30
+RV = 20
+EPI = 40
+BASE = 10
+
+[ecg]
+electrodes = "rodero_05_fine_nodefield_electrode_xyz.csv"
+unit_scale = 1e-2                   # electrode file in cm, mesh in m

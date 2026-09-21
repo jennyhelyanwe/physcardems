@@ -1,9 +1,13 @@
-# run_rodero_em.py
-# Coupled electromechanics on rodero_05, EP and mechanics on the same coarse mesh:
-# monodomain ToR-ORd-Land (EP half of the zeta split) driven by the Eikonal LAT,
-# Land zeta states in UFL, dynamic mechanics with valve plugs, five-phase cycle
-# controller. Cell-model parameters come from model_parameters.py. Serial only.
+# run_em.py
+# Coupled electromechanics, EP and mechanics on the same mesh: monodomain
+# ToR-ORd-Land (EP half of the zeta split) driven by the Eikonal LAT, Land zeta
+# states in UFL, dynamic mechanics with valve plugs, five-phase cycle controller.
+# All settings come from a simulation config (.toml or .json), which names its case.
+# Serial only.
+#
+# Usage: python3 scripts/run_em.py configs/elife/em_tref7.toml
 from pathlib import Path
+import argparse
 import dataclasses
 import importlib.util
 import json
@@ -28,110 +32,93 @@ from physcardems.cycle import PHASE_NAMES, CycleParams, WindkesselParams, Cavity
 from physcardems.active import ZetaSplitConstDt
 from physcardems import parameters as mp
 from physcardems import ecg as pseudo_ecg
+from physcardems.config import load_config, save_config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("em")
 comm = MPI.COMM_WORLD
 assert comm.size == 1, "serial only for now"
 
-# ------------------------------------------------------------------ settings
-DATA = Path("/home/shared/rodero_05")
-GEODIR = DATA / "rodero_05_dolfinx_v2"
+# ------------------------------------------------------------------ settings (from config)
+ap = argparse.ArgumentParser(description="Coupled electromechanics simulation")
+ap.add_argument("config", help="simulation configuration (.toml or .json)")
+args = ap.parse_args()
+cfg, case = load_config(args.config)
+
+# case: geometry, data files, tags
+DATA = case.root
+GEODIR = case.path("geometry", "dir")
+ELECTRODES = case.path("ecg", "electrodes")
+ELECTRODE_UNIT_SCALE = case.get("ecg", "unit_scale")
+TAGS = case.get("geometry", "tags")
+MYOCARDIUM_TAGS = tuple(case.get("geometry", "myocardium_cell_tags"))
 ODEFILE = mp.ODEFILE
-ELECTRODES = DATA / "rodero_05_fine_nodefield_electrode_xyz.csv"
-# OUTDIR = Path("rodero-em-elife")
-OUTDIR = Path("../rodero_05/rodero-em-tref3")
+OUTDIR = Path(cfg.get("outdir") or Path("runs") / case.name / Path(args.config).stem)
 
-DT_MECH_MS = 2.0
-DT_EP_MS = 0.05
-T_END_MS = 800.0
-PCL_MS = 800.0
-LAT_SHIFT_MS = 0.0            # raw LAT starts at 130 ms, just after end-diastole at 120 ms
-CONDUCTIVITIES = "Niederer"
-ELECTRODE_UNIT_SCALE = 1e-2   # electrode file in cm, mesh in m
-DT_ECG_MS = 1.0
-QUAD_DEGREE = 4
-TAGS = {"LV": 30, "RV": 20, "EPI": 40, "BASE": 10}
-VALVE_STIFFNESS_SCALE = 3.0
-MYOCARDIUM_TAGS = (1, 2)
-PRECONDITIONER_LAG = 20
-PLOT_EVERY = 10
-OUTPUT_EVERY_MS = 2.0
-CHECKPOINT_EVERY_MS = 50.0
-RESTART_FROM = None           # e.g. "rodero-em-elife/checkpoints/t_0120.000" (no extension)
+# time stepping and output
+t = cfg["time"]
+DT_MECH_MS, DT_EP_MS, T_END_MS, PCL_MS = t["dt_mech_ms"], t["dt_ep_ms"], t["t_end_ms"], t["pcl_ms"]
+OUTPUT_EVERY_MS, CHECKPOINT_EVERY_MS, PLOT_EVERY = t["output_every_ms"], t["checkpoint_every_ms"], t["plot_every"]
+RESTART_FROM = cfg.get("restart", {}).get("from") or None
 
-# Alya-style unloading: isotropic downscaling of the imaged geometry about its centroid.
-# Set exactly one of these.
-REFERENCE_SCALE = 0.9
-REFERENCE_LV_VOLUME_ML = None
+# electrophysiology
+CONDUCTIVITIES = cfg["ep"]["conductivities"]
+LAT_SHIFT_MS = cfg["ep"]["lat_shift_ms"]
+DT_ECG_MS = cfg["ep"]["dt_ecg_ms"]
 
-# Passive mechanics
-MATERIAL_PARAMS = dict(a=0.61, a_f=1.56, b=7.5, b_f=35.31, a_s=0.7, b_s=33.24, a_fs=0.46, b_fs=5.09)  # moduli in kPa
-FIBRE_COMPRESSION_RESISTANCE = False
-KAPPA_PA = 1e6
+# mechanics
+m = cfg["mechanics"]
+QUAD_DEGREE = m["quad_degree"]
+KAPPA_PA = m["kappa_pa"]
+VALVE_STIFFNESS_SCALE = m["valve_stiffness_scale"]
+FIBRE_COMPRESSION_RESISTANCE = m["fibre_compression_resistance"]
+REFERENCE_SCALE = m.get("reference_scale")
+REFERENCE_LV_VOLUME_ML = m.get("reference_lv_volume_ml")
+PRECONDITIONER_LAG = m["preconditioner_lag"]
+MATERIAL_PARAMS = dict(m["material"])
 
-
-# Cell-model and Land parameters (Margara Land + eLife calibration, see model_parameters.py)
-LAND = mp.land_values()
-PARAM_HASH = mp.parameter_hash(LAND)
+# cell model and Land parameters (base values in parameters.py, changes in the config)
+LAND = mp.land_values(overrides=cfg["land"]["overrides"], scales=cfg["land"]["scales"])
+EP_OVERRIDES = cfg["cell"]["ep_overrides"]
+EP_SCALES = cfg["cell"]["ep_scales"]
+PARAM_HASH = mp.parameter_hash(LAND, EP_OVERRIDES, EP_SCALES)
 SSDIR = DATA / f"steady_state_pcl{int(PCL_MS)}_{PARAM_HASH}"
 
 N_EP = int(round(DT_MECH_MS / DT_EP_MS))
-assert np.isclose(N_EP * DT_EP_MS, DT_MECH_MS), "DT_MECH_MS must be a multiple of DT_EP_MS"
+assert np.isclose(N_EP * DT_EP_MS, DT_MECH_MS), "dt_mech_ms must be a multiple of dt_ep_ms"
 
+# unit conversions
 KPA_MS_PER_ML = 1e3 * 1e-3 / 1e-6   # Pa s / m^3
 ML_PER_KPA = 1e-6 / 1e3             # m^3 / Pa
 ML_PER_MS = 1e-6 / 1e-3             # m^3 / s
 MMHG_S_PER_ML = 133.322 / 1e-6
 ML_PER_MMHG = 1e-6 / 133.322
 
-lv_params = CycleParams(
-    t_zero=0.05, preload_pressure=500.0, t_end_diastole=0.12, p_end_diastole=1000.0,
-    p_fill=500.0, period=PCL_MS / 1e3,
-    windkessel=WindkesselParams(p_init=9000.0,
-                                resistance=1.1 * MMHG_S_PER_ML,
-                                compliance=1.5 * ML_PER_MMHG,
-                                characteristic_impedance=0.03 * MMHG_S_PER_ML),
-    filling_rate=0.046 * ML_PER_MS,
-)
-rv_params = CycleParams(
-    t_zero=0.05, preload_pressure=170.0, t_end_diastole=0.12, p_end_diastole=330.0,
-    p_fill=170.0, period=PCL_MS / 1e3,
-    windkessel=WindkesselParams(p_init=3000.0,
-                                resistance=0.1 * MMHG_S_PER_ML,
-                                compliance=4.0 * ML_PER_MMHG,
-                                characteristic_impedance=0.01 * MMHG_S_PER_ML),
-    filling_rate=0.046 * ML_PER_MS,
-)
 
-# # LV: eLife Figure 1F, 2-element (R_c = 0) to reproduce the calibrated model first
-# lv_params = CycleParams(
-#     t_zero=0.05, preload_pressure=500.0, t_end_diastole=0.12, p_end_diastole=1000.0,
-#     p_fill=500.0, period=PCL_MS / 1e3,
-#     windkessel=WindkesselParams(p_init=8450.0,
-#                                 resistance=21.59 * KPA_MS_PER_ML,
-#                                 compliance=1.392 * ML_PER_KPA,
-#                                 characteristic_impedance=0.0),
-#     ejection_pressure=8450.0,
-#     filling_rate=0.046 * ML_PER_MS,
-# )
-# # RV: not in Figure 1F; previous pulmonary values, same filling rate as the LV
-# rv_params = CycleParams(
-#     t_zero=0.05, preload_pressure=170.0, t_end_diastole=0.12, p_end_diastole=330.0,
-#     p_fill=170.0, period=PCL_MS / 1e3,
-#     windkessel=WindkesselParams(p_init=3000.0,
-#                                 resistance=0.1 * MMHG_S_PER_ML,
-#                                 compliance=4.0 * ML_PER_MMHG,
-#                                 characteristic_impedance=0.0),
-#     filling_rate=0.046 * ML_PER_MS,
-# )
+def cycle_params(c):
+    wk = c["windkessel"]
+    return CycleParams(
+        t_zero=c["t_zero_s"], preload_pressure=c["preload_pressure_pa"],
+        t_end_diastole=c["t_end_diastole_s"], p_end_diastole=c["p_end_diastole_pa"],
+        p_fill=c["p_fill_pa"], period=PCL_MS / 1e3,
+        windkessel=WindkesselParams(
+            p_init=wk["p_init_pa"],
+            resistance=wk["resistance_mmhg_s_per_ml"] * MMHG_S_PER_ML,
+            compliance=wk["compliance_ml_per_mmhg"] * ML_PER_MMHG,
+            characteristic_impedance=wk["characteristic_impedance_mmhg_s_per_ml"] * MMHG_S_PER_ML),
+        filling_rate=c["filling_rate_ml_per_ms"] * ML_PER_MS,
+    )
+
+
+lv_params = cycle_params(cfg["circulation"]["lv"])
+rv_params = cycle_params(cfg["circulation"]["rv"])
 
 OUTDIR.mkdir(parents=True, exist_ok=True)
+save_config(cfg, OUTDIR / "config_used.json", param_hash=PARAM_HASH, case=str(case.root))
 CKPT_DIR = OUTDIR / "checkpoints"
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
 GEN_DIR = OUTDIR / "generated"
 GEN_DIR.mkdir(parents=True, exist_ok=True)
-
 
 def ho_params(p):
     kpa = lambda v: pulse.Variable(v, "kPa")
@@ -164,7 +151,7 @@ class ScaledModel:
 geo = cardiac_geometries.geometry.Geometry.from_folder(comm=comm, folder=GEODIR)
 for name, tag in TAGS.items():
     assert int(geo.markers[name][0]) == tag, f"{name}: expected tag {tag}, file has {geo.markers[name]}"
-assert geo.cfun is not None, "geometry has no cell tags; use rodero_05_dolfinx_v2"
+assert geo.cfun is not None, f"geometry in {GEODIR} has no cell tags"
 
 
 def cavity_volume_ml(marker):
@@ -239,7 +226,7 @@ for c in CELLTYPES:
 P = np.repeat(ep.init_parameter_values(i_Stim_Period=PCL_MS, lmbda=1.0, dLambda=0.0)[:, None], N, axis=1)
 P[ep.parameter_index("celltype")] = ct.astype(float)
 P[ep.parameter_index("i_Stim_Start")] = lat
-applied = mp.apply_to_ode_parameters(P, ep, LAND)
+applied = mp.apply_to_ode_parameters(P, ep, LAND, EP_OVERRIDES, EP_SCALES)
 logger.info(f"Parameter hash {PARAM_HASH}; EP parameters applied: {applied}")
 i_lmbda = ep.parameter_index("lmbda")
 iv, ica, iXS, iXW = (ep.state_index(s) for s in ("v", "cai", "XS", "XW"))

@@ -1,0 +1,73 @@
+# Coupled electromechanics, rodero_05, Tref x7
+case = "../../cases/rodero_05/case.toml"   # relative to this file
+
+[time]
+dt_mech_ms = 2.0
+dt_ep_ms = 0.05
+t_end_ms = 800.0
+pcl_ms = 800.0
+output_every_ms = 2.0
+checkpoint_every_ms = 50.0
+plot_every = 10                 # mechanics steps
+
+[restart]
+from = ""                       # checkpoint base path without extension; empty = start at t = 0
+
+[ep]
+conductivities = "Niederer"
+lat_shift_ms = 0.0              # raw LAT starts at 130 ms, just after end-diastole at 120 ms
+dt_ecg_ms = 1.0
+
+[mechanics]
+quad_degree = 4
+kappa_pa = 1e6
+valve_stiffness_scale = 3.0
+fibre_compression_resistance = false
+reference_scale = 0.9           # Alya-style isotropic unloading; set this OR reference_lv_volume_ml
+preconditioner_lag = 20
+
+[mechanics.material]            # Holzapfel-Ogden; a-values in kPa, b-values dimensionless
+a = 0.61
+b = 7.5
+a_f = 1.56
+b_f = 35.31
+a_s = 0.7
+b_s = 33.24
+a_fs = 0.46
+b_fs = 5.09
+
+[land]                          # applied on top of LAND_BASE (Margara) in parameters.py
+overrides = { cat50_ref = 0.534 }       # eLife calibration
+scales = { kws = 3.86, Tref = 7.0 }
+
+[cell]
+ep_overrides = {}
+ep_scales = { PCa_b = 2.0 }     # TO CONFIRM: eLife two-fold GCaL (calibration step 3)
+
+[circulation.lv]
+t_zero_s = 0.05
+preload_pressure_pa = 500.0
+t_end_diastole_s = 0.12
+p_end_diastole_pa = 1000.0
+p_fill_pa = 500.0
+filling_rate_ml_per_ms = 0.046
+
+[circulation.lv.windkessel]
+p_init_pa = 9000.0
+resistance_mmhg_s_per_ml = 1.1
+compliance_ml_per_mmhg = 1.5
+characteristic_impedance_mmhg_s_per_ml = 0.03
+
+[circulation.rv]
+t_zero_s = 0.05
+preload_pressure_pa = 170.0
+t_end_diastole_s = 0.12
+p_end_diastole_pa = 330.0
+p_fill_pa = 170.0
+filling_rate_ml_per_ms = 0.046
+
+[circulation.rv.windkessel]
+p_init_pa = 3000.0
+resistance_mmhg_s_per_ml = 0.1
+compliance_ml_per_mmhg = 4.0
+characteristic_impedance_mmhg_s_per_ml = 0.01
