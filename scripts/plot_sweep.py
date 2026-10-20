@@ -26,6 +26,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("study_dir", help="e.g. runs/ta_lhs")
 ap.add_argument("--lvef", nargs=2, type=float, default=[51.0, 70.0], help="target LVEF range (%%)")
 ap.add_argument("--out", default="sweep_overview.png")
+ap.add_argument("--ef-range", nargs=2, type=float, default=None,
+                help="LVEF colour range (%%); default is the range reached across the samples")
 ap.add_argument("--lat0", type=float, default=130.0,
                 help="activation time (ms) at which the Ta panels start each profile, so they line up with "
                      "the pressure and volume traces; 130 ms is the earliest activation in rodero_05")
@@ -53,8 +55,16 @@ efs = np.array([s["lvef"] for s in samples])
 n_done = int(np.isfinite(efs).sum())
 n_in = int(np.sum((efs >= lo) & (efs <= hi)))
 finite = efs[np.isfinite(efs)]
-norm = matplotlib.colors.Normalize(vmin=min(20.0, finite.min()) if finite.size else 20.0,
-                                   vmax=max(80.0, finite.max()) if finite.size else 80.0)
+# colour range: from the lowest LVEF reached (rounded down to 5%) up to 60%, so the lightest
+# colours mark the most promising samples; anything above 60% shows in the lightest colour
+EF_TOP = 60.0
+if args.ef_range:
+    ef_lo, ef_hi = args.ef_range
+else:
+    ef_lo = 5.0 * np.floor(finite.min() / 5.0) if finite.size else 30.0
+    ef_lo = min(ef_lo, EF_TOP - 10.0)
+    ef_hi = EF_TOP
+norm = matplotlib.colors.Normalize(vmin=ef_lo, vmax=ef_hi, clip=True)
 cmap = plt.get_cmap("viridis")
 
 
