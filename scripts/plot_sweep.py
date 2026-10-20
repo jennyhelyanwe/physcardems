@@ -26,6 +26,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument("study_dir", help="e.g. runs/ta_lhs")
 ap.add_argument("--lvef", nargs=2, type=float, default=[51.0, 70.0], help="target LVEF range (%%)")
 ap.add_argument("--out", default="sweep_overview.png")
+ap.add_argument("--lat0", type=float, default=130.0,
+                help="activation time (ms) at which the Ta panels start each profile, so they line up with "
+                     "the pressure and volume traces; 130 ms is the earliest activation in rodero_05")
 args = ap.parse_args()
 study = Path(args.study_dir)
 lo, hi = args.lvef
@@ -83,20 +86,33 @@ for s in order:
     pcl = float(cfg["time"]["pcl_ms"])
     prof = celltype_profiles(cfg["active"], pcl)
     ta_d = diastolic_ta(cfg["active"], prof)
-    tau = np.linspace(0.0, pcl, 400)
+    # tau = np.linspace(0.0, pcl, 400)
+    t_sim = np.linspace(0.0, pcl, 801)
+    tau = t_sim - args.lat0 - float(cfg.get("activation", {}).get("lat_shift_ms", 0.0))
     st = style(s)
     for c, name in enumerate(CELLTYPES.values()):
         p = prof[name]
         ta = ta_d[name] + (p["Ta_peak_kpa"] - ta_d[name]) * ta_shape(
             tau, p["t_peak_ms"], p["a_rise"], p["sigma_decay_ms"], pcl)
-        ax[2, c].plot(tau, ta, **st)
+        shape = np.where(tau >= 0.0, ta_shape(np.clip(tau, 0.0, None), p["t_peak_ms"], p["a_rise"],
+                                              p["sigma_decay_ms"], pcl), 0.0)
+        ax[2, c].plot(t_sim, ta_d[name] + (p["Ta_peak_kpa"] - ta_d[name]) * shape, **st)
+        # ax[2, c].plot(tau, ta, **st)
 
 for r, side in enumerate(("LV", "RV")):
     ax[r, 0].set(title=f"{side} pressure-volume loop", xlabel="volume (mL)", ylabel="pressure (kPa)")
     ax[r, 1].set(title=f"{side} pressure", xlabel="t (ms)", ylabel="pressure (kPa)")
     ax[r, 2].set(title=f"{side} volume", xlabel="t (ms)", ylabel="volume (mL)")
 for c, name in enumerate(CELLTYPES.values()):
-    ax[2, c].set(title=f"Prescribed Ta, {name}", xlabel="time since activation (ms)", ylabel="Ta (kPa)")
+    # ax[2, c].set(title=f"Prescribed Ta, {name}", xlabel="time since activation (ms)", ylabel="Ta (kPa)")
+    ax[2, c].set(title=f"Prescribed Ta, {name} (activated at {args.lat0:g} ms)", xlabel="t (ms)",
+                 ylabel="Ta (kPa)")
+# for a_ in ax.flat:
+#     a_.grid(True, alpha=0.3)
+
+t_max = max([s["log"][-1, 0] for s in samples if s["log"] is not None] + [args.lat0 + 400.0])
+for a_ in (ax[0, 1], ax[0, 2], ax[1, 1], ax[1, 2], *ax[2, :]):
+    a_.set_xlim(0.0, t_max)
 for a_ in ax.flat:
     a_.grid(True, alpha=0.3)
 
