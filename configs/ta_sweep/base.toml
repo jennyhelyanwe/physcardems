@@ -1,0 +1,89 @@
+# Mechanics driven by a prescribed Ta profile (scripts/run_mech_ta.py), rodero_05.
+# Everything except [active] and [activation] matches configs/elife/em_tref7.toml.
+case = "../../cases/rodero_05/case.toml"   # relative to this file
+
+[time]
+dt_mech_ms = 2.0
+t_end_ms = 800.0
+pcl_ms = 800.0
+output_every_ms = 2.0
+checkpoint_every_ms = 50.0
+plot_every = 10                 # mechanics steps
+
+[restart]
+from = ""
+
+[activation]
+lat_shift_ms = 0.0              # raw LAT starts at 130 ms, just after end-diastole at 120 ms
+
+[active]
+formulation = "stretch"         # same convention as ZetaSplitUFL: |P_a f0| = Ta
+Ta_d_kpa = 0.0                  # diastolic tension (fit gives 0.06 to 0.10 kPa)
+
+# endo profile: ToRORd-Land steady-state fit, 800 ms, 100 beats, isometric
+# (cardiac-single-cell-em, experiments/07_ta_profile_fit)
+[active.endo]
+Ta_peak_kpa = 27.00
+t_peak_ms = 167.35
+a_rise = 0.9914
+sigma_decay_ms = 95.83
+
+# epi and mid = endo x these ratios (same fit)
+[active.relative.epi]
+Ta_peak = 1.6543
+t_peak = 0.9914
+a_rise = 0.9344
+sigma_decay = 0.9781
+
+[active.relative.mid]
+Ta_peak = 2.3946
+t_peak = 1.1298
+a_rise = 0.8091
+sigma_decay = 1.2390
+
+[mechanics]
+quad_degree = 4
+kappa_pa = 1e6
+valve_stiffness_scale = 3.0
+fibre_compression_resistance = false
+reference_scale = 0.9
+preconditioner_lag = 20
+material_scales = {}            # e.g. { a = 1.5, a_f = 1.5 } to scale material parameters
+
+[mechanics.material]            # Holzapfel-Ogden; a-values in kPa, b-values dimensionless
+a = 0.61
+b = 7.5
+a_f = 1.56
+b_f = 35.31
+a_s = 0.7
+b_s = 33.24
+a_fs = 0.46
+b_fs = 5.09
+
+[circulation.lv]
+t_zero_s = 0.05
+preload_pressure_pa = 500.0
+t_end_diastole_s = 0.12
+p_end_diastole_pa = 1000.0
+p_fill_pa = 500.0
+filling_rate_ml_per_ms = 0.046
+
+[circulation.lv.windkessel]
+p_init_pa = 9000.0
+resistance_mmhg_s_per_ml = 1.1
+compliance_ml_per_mmhg = 1.5
+characteristic_impedance_mmhg_s_per_ml = 0.03
+
+[circulation.rv]
+t_zero_s = 0.05
+preload_pressure_pa = 170.0
+t_end_diastole_s = 0.12
+p_end_diastole_pa = 330.0
+p_fill_pa = 170.0
+filling_rate_ml_per_ms = 0.046
+
+[circulation.rv.windkessel]
+p_init_pa = 3000.0
+resistance_mmhg_s_per_ml = 0.1
+compliance_ml_per_mmhg = 4.0
+characteristic_impedance_mmhg_s_per_ml = 0.01

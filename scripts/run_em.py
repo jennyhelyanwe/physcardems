@@ -507,7 +507,16 @@ def save_plots(arr):
     ax[0, 1].set_title("Volume (mL) and outflow (mL/s)")
     ax[0, 2].plot(arr[:, 5], arr[:, 6], label="LV")
     ax[0, 2].plot(arr[:, 9], arr[:, 10], label="RV")
-    ax[0, 2].set_title("PV loop (kPa vs mL)")
+    # ax[0, 2].set_title("PV loop (kPa vs mL)")
+    
+    def ef_text(V):
+        i_ed = int(np.argmax(V))                 # end-diastole = peak volume so far
+        edv, esv = V[i_ed], V[i_ed:].min()       # end-systole = minimum after ED
+        ef = 100.0 * (edv - esv) / edv if edv > 0 else np.nan
+        return f"EF {ef:.1f}%  (EDV {edv:.1f}, ESV {esv:.1f}, SV {edv - esv:.1f} mL)"
+
+    ax[0, 2].set_title(f"PV loop (kPa vs mL)\nLV {ef_text(arr[:, 5])}\nRV {ef_text(arr[:, 9])}",
+                       fontsize=10)
     ax[1, 0].plot(t, arr[:, 1], "k", label="max Ta, myocardium (kPa)")
     axp = ax[1, 0].twinx()
     axp.step(t, arr[:, 4], where="post", label="LV phase")
