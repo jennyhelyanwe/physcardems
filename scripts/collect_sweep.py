@@ -55,6 +55,8 @@ def biomarkers_from_log(log_path):
 
 ap = argparse.ArgumentParser()
 ap.add_argument("study_dir", help="e.g. runs/ta_lhs_test")
+ap.add_argument("--summary", action="store_true",
+                help="also print a markdown summary of the completed samples, for configs/ta_sweep/NOTES.md")
 ap.add_argument("--top", type=int, default=10)
 args = ap.parse_args()
 study = Path(args.study_dir)
@@ -103,3 +105,19 @@ print("targets: " + ", ".join(f"{c.biomarker} {c.lower:g}-{c.upper:g} {c.units}"
 with pd.option_context("display.width", 200, "display.max_columns", 20, "display.precision", 3):
     print(result[front[:-1]].head(args.top))
 print(f"wrote {study / 'results.csv'}")
+
+if args.summary:
+    comp = result[result["status"] == "complete"]
+    print(f"\n- Collected: {len(comp)} of {len(result)} samples complete; "
+          f"{int((comp['n_pass'] == comp['n_criteria']).sum())} pass all {len(criteria)} PV criteria.")
+    print("\n| biomarker | target | min | median | max | n in range |")
+    print("|---|---|---|---|---|---|")
+    for c in criteria:
+        x = comp[c.biomarker].astype(float)
+        n_in = int(((x >= c.lower) & (x <= c.upper)).sum())
+        print(f"| {c.biomarker} ({c.units}) | {c.lower:g}-{c.upper:g} | {x.min():.3g} | {x.median():.3g} | "
+              f"{x.max():.3g} | {n_in}/{len(x)} |")
+    best = comp.sort_values("rank_lv_first").head(3)
+    print("\n- Best by lv_first: " + "; ".join(
+        f"sample {i}: LVEF {r.LVEF:.1f}%, EDV {r.EDVL:.0f}, ESV {r.ESVL:.0f} mL, PmaxL {r.PmaxL:.1f} kPa, "
+        f"RVEF {r.RVEF:.1f}%" for i, r in best.iterrows()))

@@ -11,6 +11,7 @@ LV = 30
 RV = 20
 EPI = 40
 BASE = 10
+rv_myocardium_cell_tags = [2]          # 1 LV myo, 2 RV myo, 7-10 valve plugs
 
 [ecg]
 electrodes = "rodero_05_fine_nodefield_electrode_xyz.csv"

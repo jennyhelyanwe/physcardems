@@ -18,7 +18,11 @@ lat_shift_ms = 0.0              # raw LAT starts at 130 ms, just after end-diast
 
 [active]
 formulation = "stretch"         # same convention as ZetaSplitUFL: |P_a f0| = Ta
-Ta_d_kpa = 0.0                  # diastolic tension (fit gives 0.06 to 0.10 kPa)
+#Ta_d_kpa = 0.0                  # diastolic tension (fit gives 0.06 to 0.10 kPa)
+
+# diastolic tension per cell type, from the ToRORd-Land fit; not scaled with the amplitude
+Ta_d_kpa = { endo = 0.0747, epi = 0.0596, mid = 0.1018 }
+rv_Ta_scale = 1.0               # factor on the active part of Ta in RV myocardium
 
 # endo profile: ToRORd-Land steady-state fit, 800 ms, 100 beats, isometric
 # (cardiac-single-cell-em, experiments/07_ta_profile_fit)

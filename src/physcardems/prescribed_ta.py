@@ -1,16 +1,19 @@
-"""prescribed.py: active tension prescribed as an analytical profile of time since activation.
+"""prescribed_ta.py: active tension prescribed as an analytical profile of time since activation.
 
 Ta(x, t) = Ta_d + (Ta_peak - Ta_d) * shape(t - LAT(x)), with per-cell-type shape parameters.
 shape (tau = time since activation, ms, wrapped by the cycle length):
     rise  (0 <= tau < t_peak):   sin^2( pi/2 * (tau / t_peak)^a_rise )
     decay (t_peak <= tau <= pcl): Gaussian of width sigma_decay, rescaled to reach 0 at tau = pcl
 so Ta = Ta_d at activation and at the end of the cycle, and Ta = Ta_peak at t_peak.
-
 Before the first activation Ta = Ta_d, so Ta_d also acts during diastolic filling.
 
-Ta_d is set per cell type, either as a fraction of that cell type's Ta_peak ([active] Ta_d_frac),
-which keeps the diastolic-to-peak ratio when the amplitude is scaled, or as one absolute
-value for all cell types ([active] Ta_d_kpa). Ta_d_frac takes precedence if both are given.
+Ta_d is set per cell type, either in absolute terms ([active] Ta_d_kpa, a number for all cell
+types or a table {endo, epi, mid}), which stays fixed when the amplitude is scaled, or as a
+fraction of that cell type's Ta_peak ([active] Ta_d_frac). Ta_d_frac takes precedence if both
+are given.
+
+An optional spatial amplitude scale s(x) (e.g. a separate factor for RV myocardium) multiplies
+the active part only: Ta = Ta_d + s(x) * (Ta_peak - Ta_d) * shape, so Ta_d is not scaled.
 
 No length or velocity dependence: the sweep finds the tension the tissue must actually develop.
 """
@@ -54,40 +57,55 @@ def celltype_profiles(active_cfg, pcl_ms):
         assert p["a_rise"] > 0.0 and p["sigma_decay_ms"] > 0.0, f"{name}: a_rise and sigma_decay must be > 0"
     return out
 
+
 def diastolic_ta(active_cfg, profiles):
     """Per-cell-type diastolic Ta (kPa) from [active] Ta_d_frac or Ta_d_kpa."""
     if "Ta_d_frac" in active_cfg:
         frac = float(active_cfg["Ta_d_frac"])
         assert 0.0 <= frac < 1.0, "Ta_d_frac must be in [0, 1)"
         return {name: frac * p["Ta_peak_kpa"] for name, p in profiles.items()}
-    return {name: float(active_cfg.get("Ta_d_kpa", 0.0)) for name in profiles}
+    v = active_cfg.get("Ta_d_kpa", 0.0)
+    if isinstance(v, dict):
+        missing = set(profiles) - set(v)
+        assert not missing, f"[active] Ta_d_kpa table is missing {sorted(missing)}"
+        return {name: float(v[name]) for name in profiles}
+    return {name: float(v) for name in profiles}
 
 
-def ta_nodal(t_ms, lat_ms, celltype, profiles, ta_d, pcl_ms):
-    """Ta in kPa at each node at time t_ms. ta_d: {cell type name: diastolic Ta in kPa}."""
+def ta_nodal_parts(t_ms, lat_ms, celltype, profiles, ta_d, pcl_ms):
+    """Diastolic and active parts of Ta (kPa) at each node: Ta = diastolic + active."""
     tau = t_ms - lat_ms
     active = tau >= 0.0
     tau_w = np.mod(np.where(active, tau, 0.0), pcl_ms)
-    ta = np.zeros(lat_ms.shape, dtype=float)
+    dia = np.zeros(lat_ms.shape, dtype=float)
+    act = np.zeros(lat_ms.shape, dtype=float)
     for c, name in CELLTYPES.items():
         cell = celltype == c
-        ta[cell] = ta_d[name]
+        dia[cell] = ta_d[name]
         sel = active & cell
         if not np.any(sel):
             continue
         p = profiles[name]
         shape = ta_shape(tau_w[sel], p["t_peak_ms"], p["a_rise"], p["sigma_decay_ms"], pcl_ms)
-        ta[sel] = ta_d[name] + (p["Ta_peak_kpa"] - ta_d[name]) * shape
-    return ta
+        act[sel] = (p["Ta_peak_kpa"] - ta_d[name]) * shape
+    return dia, act
+
+
+def ta_nodal(t_ms, lat_ms, celltype, profiles, ta_d, pcl_ms):
+    """Ta in kPa at each node at time t_ms (no spatial amplitude scale)."""
+    dia, act = ta_nodal_parts(t_ms, lat_ms, celltype, profiles, ta_d, pcl_ms)
+    return dia + act
+
 
 class PrescribedActive:
     """Active stress along f0 with Ta taken from a nodal (P1) field updated each step.
 
     Interface used by run_mech_ta.py and ControlledCavityDynamicProblem: register(u),
-    set_time(t_ms), S(C, dev), P(F, dev), post_solve(), lmbda, Ta_current (Pa, DG1).
+    set_time(t_ms), S(C, dev), P(F, dev), post_solve(), lmbda, Ta_current (Pa, DG1, updated in
+    post_solve; includes the spatial amplitude scale).
     """
 
-    def __init__(self, *, f0, mesh, lat_ms, celltype, profiles, ta_d, pcl_ms,
+    def __init__(self, *, f0, mesh, lat_ms, celltype, profiles, ta_d, pcl_ms, amp_scale=None,
                  formulation=pulse.ActiveStressFormulation.stretch):
         self.f0 = f0
         self.formulation = formulation
@@ -100,7 +118,11 @@ class PrescribedActive:
         P1 = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
         assert P1.dofmap.index_map.size_local + P1.dofmap.index_map.num_ghosts == self.lat_ms.size, \
             "LAT and cell-type arrays must be P1 nodal arrays on the mechanics mesh"
-        self.Ta = dolfinx.fem.Function(P1, name="Ta_Pa")          # enters the form
+        self.Ta_dia = dolfinx.fem.Function(P1, name="Ta_diastolic_Pa")
+        self.Ta_act = dolfinx.fem.Function(P1, name="Ta_active_Pa")
+        # spatial factor on the active part (DG0, e.g. separate RV amplitude); 1 if not given
+        self.amp_scale = amp_scale if amp_scale is not None else 1.0
+        self.Ta = self.Ta_dia + self.amp_scale * self.Ta_act          # UFL; enters the form
         self.function_space = dolfinx.fem.functionspace(mesh, ("DG", 1))
         self.lmbda = dolfinx.fem.Function(self.function_space, name="lambda")
         self.Ta_current = dolfinx.fem.Function(self.function_space, name="Ta")
@@ -111,8 +133,9 @@ class PrescribedActive:
         self.u = u
 
     def set_time(self, t_ms):
-        self.Ta.x.array[:] = 1e3 * ta_nodal(t_ms, self.lat_ms, self.celltype, self.profiles,
-                                            self.ta_d, self.pcl_ms)
+        dia, act = ta_nodal_parts(t_ms, self.lat_ms, self.celltype, self.profiles, self.ta_d, self.pcl_ms)
+        self.Ta_dia.x.array[:] = 1e3 * dia
+        self.Ta_act.x.array[:] = 1e3 * act
 
     def strain_energy(self, C):
         raise NotImplementedError("PrescribedActive supplies S directly")
@@ -130,4 +153,4 @@ class PrescribedActive:
         lmbda = ufl.sqrt(ufl.inner(F.T * F * self.f0, self.f0))
         pts = self.function_space.element.interpolation_points
         self.lmbda.interpolate(dolfinx.fem.Expression(lmbda, pts))
-        self.Ta_current.interpolate(self.Ta)
+        self.Ta_current.interpolate(dolfinx.fem.Expression(self.Ta, pts))

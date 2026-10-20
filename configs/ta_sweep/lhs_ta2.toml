@@ -1,0 +1,25 @@
+# Second prescribed-Ta LHS (scripts/sample_ta_lhs.py): Ta amplitude and upstroke, a separate RV
+# amplitude, LV afterload, and RV preload. Ta_d fixed at the cell-model values (base.toml),
+# sigma_decay fixed (no effect on any output in ta_lhs).
+base = "base.toml"            # relative to this file
+study = "ta_lhs2"             # output in runs/<study>/
+n_samples = 128
+seed = 20261021
+
+# Multiplicative factors on the [active.endo] values in base.toml; epi and mid follow
+# through their fixed ratios. Ta_d is not scaled.
+[factors]
+Ta_peak_kpa = [6.0, 14.0]     # 27 kPa endo -> 162 to 378 kPa (best LVEF in ta_lhs was at the top, 10x)
+t_peak_ms = [0.9, 1.6]        # 167 ms -> 151 to 268 ms (later peaks lowered peak ejection rate)
+a_rise = [0.6, 2.5]           # 0.99 -> 0.59 to 2.5 (up to a much slower onset)
+
+# Absolute values, by dotted config path
+[values]
+"active.rv_Ta_scale" = [0.5, 1.5]                                     # RV active Ta relative to LV
+"circulation.lv.windkessel.resistance_mmhg_s_per_ml" = [0.7, 1.4]     # base 1.1
+"circulation.lv.windkessel.characteristic_impedance_mmhg_s_per_ml" = [0.03, 0.12]   # base 0.03
+"circulation.rv.p_end_diastole_pa" = [330.0, 900.0]                   # base 330 (2.5 mmHg)
+
+[override]
+"time.t_end_ms" = 800.0
+"time.stop_after_ivr_ms" = 20.0   # biomarkers are final once both ventricles are in IVR

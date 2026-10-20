@@ -45,6 +45,7 @@ OUTDIR = Path(cfg.get("outdir") or Path("runs") / case.name / Path(args.config).
 
 t = cfg["time"]
 DT_MECH_MS, T_END_MS, PCL_MS = t["dt_mech_ms"], t["t_end_ms"], t["pcl_ms"]
+STOP_AFTER_IVR_MS = t.get("stop_after_ivr_ms")   # stop this long after both ventricles enter IVR
 OUTPUT_EVERY_MS, CHECKPOINT_EVERY_MS, PLOT_EVERY = t["output_every_ms"], t["checkpoint_every_ms"], t["plot_every"]
 RESTART_FROM = cfg.get("restart", {}).get("from") or None
 
@@ -65,7 +66,7 @@ for k, s in m.get("material_scales", {}).items():   # e.g. { a = 1.5 } for sweep
 ACTIVE = cfg["active"]
 PROFILES = celltype_profiles(ACTIVE, PCL_MS)
 TA_D = diastolic_ta(ACTIVE, PROFILES)
-
+RV_TA_SCALE = float(ACTIVE.get("rv_Ta_scale", 1.0))   # scales the active part of Ta in RV myocardium
 FORMULATION = {"stretch": pulse.ActiveStressFormulation.stretch,
                "invariant": pulse.ActiveStressFormulation.invariant}[ACTIVE.get("formulation", "stretch")]
 
@@ -101,6 +102,7 @@ CKPT_DIR.mkdir(parents=True, exist_ok=True)
 for name, p in PROFILES.items():
     logger.info(f"Ta profile {name}: " + ", ".join(f"{k} {v:.4g}" for k, v in p.items())
                 + f", Ta_d_kpa {TA_D[name]:.4g}")
+
 
 def ho_params(p):
     kpa = lambda v: pulse.Variable(v, "kPa")
@@ -165,6 +167,15 @@ tag_dofs = DG0.dofmap.list[geo.cfun.indices, 0]
 is_myo = np.isin(geo.cfun.values, MYOCARDIUM_TAGS)
 myo_mask.x.array[tag_dofs] = is_myo.astype(float)
 stiffness_scale.x.array[tag_dofs] = np.where(is_myo, 1.0, VALVE_STIFFNESS_SCALE)
+amp_scale = dolfinx.fem.Function(DG0, name="Ta_amplitude_scale")
+amp_scale.x.array[:] = 1.0
+RV_TAGS = case.get("geometry", "rv_myocardium_cell_tags")
+if RV_TA_SCALE != 1.0:
+    assert RV_TAGS, "rv_Ta_scale is set but the case does not define geometry.rv_myocardium_cell_tags"
+if RV_TAGS:
+    is_rv = np.isin(geo.cfun.values, RV_TAGS)
+    amp_scale.x.array[tag_dofs[is_rv]] = RV_TA_SCALE
+    logger.info(f"RV myocardium cells: {int(is_rv.sum())}, active Ta x{RV_TA_SCALE:.3g}")
 logger.info(f"Valve plug cells: {int(np.sum(~is_myo))} (Ta = 0, passive stiffness x{VALVE_STIFFNESS_SCALE})")
 
 # ------------------------------------------------------------------ activation and cell type (node fields)
@@ -180,7 +191,7 @@ logger.info(f"Activation: LAT {lat.min():.1f} to {lat.max():.1f} ms; nodes per c
 
 # ------------------------------------------------------------------ mechanics
 active = PrescribedActive(f0=geo.f0, mesh=mesh, lat_ms=lat, celltype=ct, profiles=PROFILES,
-                          ta_d=TA_D, pcl_ms=PCL_MS, formulation=FORMULATION)
+                          ta_d=TA_D, pcl_ms=PCL_MS, amp_scale=amp_scale, formulation=FORMULATION)
 material = ScaledModel(
     pulse.HolzapfelOgden(f0=geo.f0, s0=geo.s0, **ho_params(MATERIAL_PARAMS),
                          use_heaviside=not FIBRE_COMPRESSION_RESISTANCE,
@@ -253,6 +264,7 @@ u_out = dolfinx.fem.Function(Wv, name="u")
 ta_out = dolfinx.fem.Function(W, name="Ta_kPa")
 lam_out = dolfinx.fem.Function(W, name="lambda")
 lam_form = dolfinx.fem.form(active.lmbda * w_test * dx_out)
+ta_form = dolfinx.fem.form(active.Ta_current * myo_mask * w_test * dx_out)
 ct_out = dolfinx.fem.Function(W, name="celltype")
 ct_out.x.array[:] = ct
 lat_out = dolfinx.fem.Function(W, name="lat_ms")
@@ -276,9 +288,8 @@ def record_active_stats(t_ms):
     row = [t_ms]
     lam = active.lmbda.x.array
     for c in CELLTYPES:
-        node_sel = myo_nodes & (ct == c)
         dof_sel = myo_dofs & (ct_dofs == c)
-        ta_med = float(np.median(active.Ta.x.array[node_sel]) / 1e3) if node_sel.any() else np.nan
+        ta_med = float(np.median(active.Ta_current.x.array[dof_sel]) / 1e3) if dof_sel.any() else np.nan
         lam_q = np.percentile(lam[dof_sel], [10, 50, 90]) if dof_sel.any() else [np.nan] * 3
         row += [ta_med, *map(float, lam_q)]
     active_stats_rows.append(row)
@@ -289,11 +300,13 @@ def save_active_stats():
         np.savetxt(OUTDIR / "active_stats.csv", np.array(active_stats_rows), delimiter=",",
                    header=ACTIVE_STATS_HEADER, comments="")
 
+
 def write_outputs(t_ms):
     u_out.interpolate(problem.u)
-    ta_out.x.array[:] = active.Ta.x.array * myo_frac / 1e3
+    ta_out.x.array[:] = dolfinx.fem.assemble_vector(ta_form).array / lumped_mass / 1e3
     lam_out.x.array[:] = dolfinx.fem.assemble_vector(lam_form).array / lumped_mass
     vtx_all.write(t_ms)
+    record_active_stats(t_ms)
 
 
 def write_checkpoint(t_ms):
@@ -360,6 +373,7 @@ n_total = int(round(T_END_MS / DT_MECH_MS))
 ckpt_every = max(1, int(round(CHECKPOINT_EVERY_MS / DT_MECH_MS)))
 output_every = max(1, int(round(OUTPUT_EVERY_MS / DT_MECH_MS)))
 
+t_ivr = {}   # time each ventricle first entered IVR
 for k in range(k0 + 1, n_total + 1):
     t_ms = k * DT_MECH_MS
     wall0 = timer.time()
@@ -375,7 +389,7 @@ for k in range(k0 + 1, n_total + 1):
 
     nit = problem.problem.solver.getIterationNumber()
     Jmin, Jmax, ninv = detF_stats()
-    ta_myo = active.Ta.x.array[myo_nodes] / 1e3
+    ta_myo = active.Ta_current.x.array[myo_dofs] / 1e3
     lam_myo = active.lmbda.x.array[myo_dofs]
     lv, rv = out["LV"], out["RV"]
     wall = timer.time() - wall0
@@ -394,11 +408,19 @@ for k in range(k0 + 1, n_total + 1):
         f"its={nit} J=[{Jmin:.3f}, {Jmax:.3f}] inv={ninv} | {wall:.1f} s")
 
     transition = any(out[m]["phase"] != phases_before[m] for m in states)
+    for m in states:
+        if out[m]["phase"] == 3 and m not in t_ivr:
+            t_ivr[m] = t_ms
     if k % ckpt_every == 0 or transition:
         write_checkpoint(t_ms)
     if (k - k0) % PLOT_EVERY == 0:
         save_log(np.array(log))
         save_active_stats()
+    if STOP_AFTER_IVR_MS is not None and len(t_ivr) == len(states) \
+            and t_ms >= max(t_ivr.values()) + STOP_AFTER_IVR_MS:
+        logger.info(f"Both ventricles in IVR (LV {t_ivr['LV']:.0f} ms, RV {t_ivr['RV']:.0f} ms); "
+                    f"stopping at {t_ms:.0f} ms (stop_after_ivr_ms = {STOP_AFTER_IVR_MS:g})")
+        break
 
 vtx_all.close()
 if log:
