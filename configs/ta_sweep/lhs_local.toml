@@ -1,0 +1,20 @@
+# Local 5-sample LHS test of the prescribed-Ta parameters (scripts/sample_ta_lhs.py).
+base = "base.toml"            # relative to this file
+study = "ta_lhs_local"        # output in runs/<study>/
+n_samples = 5
+seed = 20261020
+
+# All samples restart from the shared preload (Ta = 0 until the first activation at 130 ms)
+restart_dir = "runs/rodero_05/base/checkpoints"   # your local base run
+restart_before_ms = 130.0
+
+# Multiplicative factors on the [active.endo] values in base.toml; epi and mid follow
+# through their fixed ratios. Uniform LHS between [low, high].
+[factors]
+Ta_peak_kpa = [5.0, 10.0]     # 27 kPa endo -> 135 to 270 kPa (mid 2.39x that)
+t_peak_ms = [0.8, 1.2]        # 167 ms -> 134 to 201 ms
+a_rise = [0.6, 1.6]           # 0.99 -> 0.59 to 1.59 (front-loaded to slow onset)
+sigma_decay_ms = [0.8, 1.2]   # 96 ms -> 77 to 115 ms
+
+[override]
+"time.t_end_ms" = 800.0
