@@ -1,8 +1,10 @@
 """sample_ta_lhs.py: Latin hypercube sample of the prescribed-Ta parameters.
 
-Reads a study spec (TOML), draws an LHS over multiplicative factors on the [active.endo]
-values of the base config (epi and mid follow through their fixed ratios), and writes
-one JSON config per sample plus a samples table and a list file for sweep.slurm.
+Reads a study spec (TOML) and draws one LHS over
+  [factors]  multiplicative factors on the [active.endo] values of the base config
+             (epi and mid follow through their fixed ratios), and
+  [values]   absolute values for any config entry, by dotted path (e.g. "active.Ta_d_frac"),
+then writes one JSON config per sample plus a samples table and a list file for the pool runner.
 
     python3 scripts/sample_ta_lhs.py configs/ta_sweep/lhs_test.toml
 
@@ -34,12 +36,22 @@ base["case"] = str((base_path.parent / base["case"]).resolve())   # absolute: co
 
 study = spec["study"]
 n, seed = int(spec["n_samples"]), int(spec["seed"])
-ranges = spec["factors"]                                  # {endo key: [low, high]}
-names = list(ranges)
-for k in names:
+factor_ranges = spec.get("factors", {})                   # {endo key: [low, high]}
+value_ranges = spec.get("values", {})                     # {dotted config path: [low, high]}
+for k in factor_ranges:
     assert k in base["active"]["endo"], f"{k} is not a key of [active.endo] in {base_path.name}"
-lo = np.array([ranges[k][0] for k in names], dtype=float)
-hi = np.array([ranges[k][1] for k in names], dtype=float)
+names = [f"f_{k}" for k in factor_ranges] + list(value_ranges)
+bounds = list(factor_ranges.values()) + list(value_ranges.values())
+lo = np.array([b[0] for b in bounds], dtype=float)
+hi = np.array([b[1] for b in bounds], dtype=float)
+
+
+def set_path(cfg, dotted, value):
+    *parents, key = dotted.split(".")
+    node = cfg
+    for k in parents:
+        node = node.setdefault(k, {})
+    node[key] = value
 
 unit = qmc.LatinHypercube(d=len(names), seed=seed).random(n)
 factors = qmc.scale(unit, lo, hi)
@@ -51,6 +63,9 @@ outroot.mkdir(parents=True, exist_ok=True)
 # so every sample has the same preload)
 restart = ""
 if spec.get("restart_dir"):
+    affects_preload = [k for k in value_ranges if k.startswith(("active.Ta_d", "mechanics.", "circulation."))]
+    assert not affects_preload, (f"{affects_preload} change the preload, so samples cannot share a preload "
+                                 "checkpoint: remove restart_dir from the spec")
     rdir = Path(spec["restart_dir"]).resolve()
     t_max = float(spec["restart_before_ms"])
     found = []
@@ -67,20 +82,20 @@ rows, paths = [], []
 for i, fac in enumerate(factors):
     cfg = copy.deepcopy(base)
     for k, v in spec.get("override", {}).items():          # e.g. time.t_end_ms
-        sec, key = k.split(".", 1)
-        cfg[sec][key] = v
-    for k, f_ in zip(names, fac):
-        cfg["active"]["endo"][k] = base["active"]["endo"][k] * float(f_)
+        set_path(cfg, k, v)
+    drawn = dict(zip(names, map(float, fac)))
+    for k in factor_ranges:
+        cfg["active"]["endo"][k] = base["active"]["endo"][k] * drawn[f"f_{k}"]
+    for k in value_ranges:
+        set_path(cfg, k, drawn[k])
     cfg["outdir"] = str(outroot / f"sample_{i:03d}")
     cfg.setdefault("restart", {})["from"] = restart
-    cfg["sample"] = {"study": study, "id": i, "seed": seed,
-                     "factors": {k: float(f_) for k, f_ in zip(names, fac)}}
+    cfg["sample"] = {"study": study, "id": i, "seed": seed, "drawn": drawn}
     path = outroot / f"sample_{i:03d}" / "config.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(cfg, indent=2))
     paths.append(str(path))
-    rows.append({"id": i, **{f"f_{k}": float(f_) for k, f_ in zip(names, fac)},
-                 **{k: cfg["active"]["endo"][k] for k in names}})
+    rows.append({"id": i, **drawn, **{f"endo_{k}": cfg["active"]["endo"][k] for k in factor_ranges}})
 
 with open(outroot / "samples.csv", "w", newline="") as fh:
     w = csv.DictWriter(fh, fieldnames=list(rows[0]))

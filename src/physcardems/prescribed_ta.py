@@ -5,7 +5,12 @@ shape (tau = time since activation, ms, wrapped by the cycle length):
     rise  (0 <= tau < t_peak):   sin^2( pi/2 * (tau / t_peak)^a_rise )
     decay (t_peak <= tau <= pcl): Gaussian of width sigma_decay, rescaled to reach 0 at tau = pcl
 so Ta = Ta_d at activation and at the end of the cycle, and Ta = Ta_peak at t_peak.
-Before the first activation Ta = Ta_d.
+
+Before the first activation Ta = Ta_d, so Ta_d also acts during diastolic filling.
+
+Ta_d is set per cell type, either as a fraction of that cell type's Ta_peak ([active] Ta_d_frac),
+which keeps the diastolic-to-peak ratio when the amplitude is scaled, or as one absolute
+value for all cell types ([active] Ta_d_kpa). Ta_d_frac takes precedence if both are given.
 
 No length or velocity dependence: the sweep finds the tension the tissue must actually develop.
 """
@@ -49,22 +54,31 @@ def celltype_profiles(active_cfg, pcl_ms):
         assert p["a_rise"] > 0.0 and p["sigma_decay_ms"] > 0.0, f"{name}: a_rise and sigma_decay must be > 0"
     return out
 
+def diastolic_ta(active_cfg, profiles):
+    """Per-cell-type diastolic Ta (kPa) from [active] Ta_d_frac or Ta_d_kpa."""
+    if "Ta_d_frac" in active_cfg:
+        frac = float(active_cfg["Ta_d_frac"])
+        assert 0.0 <= frac < 1.0, "Ta_d_frac must be in [0, 1)"
+        return {name: frac * p["Ta_peak_kpa"] for name, p in profiles.items()}
+    return {name: float(active_cfg.get("Ta_d_kpa", 0.0)) for name in profiles}
 
-def ta_nodal(t_ms, lat_ms, celltype, profiles, ta_d_kpa, pcl_ms):
-    """Ta in kPa at each node at time t_ms."""
+
+def ta_nodal(t_ms, lat_ms, celltype, profiles, ta_d, pcl_ms):
+    """Ta in kPa at each node at time t_ms. ta_d: {cell type name: diastolic Ta in kPa}."""
     tau = t_ms - lat_ms
     active = tau >= 0.0
     tau_w = np.mod(np.where(active, tau, 0.0), pcl_ms)
-    ta = np.full(lat_ms.shape, ta_d_kpa, dtype=float)
+    ta = np.zeros(lat_ms.shape, dtype=float)
     for c, name in CELLTYPES.items():
-        sel = active & (celltype == c)
+        cell = celltype == c
+        ta[cell] = ta_d[name]
+        sel = active & cell
         if not np.any(sel):
             continue
         p = profiles[name]
         shape = ta_shape(tau_w[sel], p["t_peak_ms"], p["a_rise"], p["sigma_decay_ms"], pcl_ms)
-        ta[sel] = ta_d_kpa + (p["Ta_peak_kpa"] - ta_d_kpa) * shape
+        ta[sel] = ta_d[name] + (p["Ta_peak_kpa"] - ta_d[name]) * shape
     return ta
-
 
 class PrescribedActive:
     """Active stress along f0 with Ta taken from a nodal (P1) field updated each step.
@@ -73,14 +87,14 @@ class PrescribedActive:
     set_time(t_ms), S(C, dev), P(F, dev), post_solve(), lmbda, Ta_current (Pa, DG1).
     """
 
-    def __init__(self, *, f0, mesh, lat_ms, celltype, profiles, ta_d_kpa, pcl_ms,
+    def __init__(self, *, f0, mesh, lat_ms, celltype, profiles, ta_d, pcl_ms,
                  formulation=pulse.ActiveStressFormulation.stretch):
         self.f0 = f0
         self.formulation = formulation
         self.lat_ms = np.asarray(lat_ms, dtype=float)
         self.celltype = np.asarray(celltype, dtype=int)
         self.profiles = profiles
-        self.ta_d_kpa = float(ta_d_kpa)
+        self.ta_d = {k: float(v) for k, v in ta_d.items()}
         self.pcl_ms = float(pcl_ms)
 
         P1 = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
@@ -98,7 +112,7 @@ class PrescribedActive:
 
     def set_time(self, t_ms):
         self.Ta.x.array[:] = 1e3 * ta_nodal(t_ms, self.lat_ms, self.celltype, self.profiles,
-                                            self.ta_d_kpa, self.pcl_ms)
+                                            self.ta_d, self.pcl_ms)
 
     def strain_energy(self, C):
         raise NotImplementedError("PrescribedActive supplies S directly")

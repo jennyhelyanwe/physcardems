@@ -23,7 +23,7 @@ import cardiac_geometries.geometry
 
 from physcardems.cavity import ControlledCavityDynamicProblem, CavityMonitor
 from physcardems.cycle import PHASE_NAMES, CycleParams, WindkesselParams, CavityState, BiVCycleController
-from physcardems.prescribed_ta import PrescribedActive, celltype_profiles, CELLTYPES
+from physcardems.prescribed_ta import PrescribedActive, celltype_profiles, diastolic_ta, CELLTYPES
 from physcardems.plotting import LOG_HEADER, plot_summary, ejection_metrics
 from physcardems.config import load_config, save_config
 
@@ -63,8 +63,9 @@ for k, s in m.get("material_scales", {}).items():   # e.g. { a = 1.5 } for sweep
     MATERIAL_PARAMS[k] *= s
 
 ACTIVE = cfg["active"]
-TA_D_KPA = ACTIVE.get("Ta_d_kpa", 0.0)
 PROFILES = celltype_profiles(ACTIVE, PCL_MS)
+TA_D = diastolic_ta(ACTIVE, PROFILES)
+
 FORMULATION = {"stretch": pulse.ActiveStressFormulation.stretch,
                "invariant": pulse.ActiveStressFormulation.invariant}[ACTIVE.get("formulation", "stretch")]
 
@@ -93,12 +94,13 @@ lv_params = cycle_params(cfg["circulation"]["lv"])
 rv_params = cycle_params(cfg["circulation"]["rv"])
 
 OUTDIR.mkdir(parents=True, exist_ok=True)
-save_config(cfg, OUTDIR / "config_used.json", case=str(case.root), active_profiles=PROFILES)
+save_config(cfg, OUTDIR / "config_used.json", case=str(case.root), active_profiles=PROFILES,
+            diastolic_ta_kpa=TA_D)
 CKPT_DIR = OUTDIR / "checkpoints"
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
 for name, p in PROFILES.items():
-    logger.info(f"Ta profile {name}: " + ", ".join(f"{k} {v:.4g}" for k, v in p.items()))
-
+    logger.info(f"Ta profile {name}: " + ", ".join(f"{k} {v:.4g}" for k, v in p.items())
+                + f", Ta_d_kpa {TA_D[name]:.4g}")
 
 def ho_params(p):
     kpa = lambda v: pulse.Variable(v, "kPa")
@@ -178,7 +180,7 @@ logger.info(f"Activation: LAT {lat.min():.1f} to {lat.max():.1f} ms; nodes per c
 
 # ------------------------------------------------------------------ mechanics
 active = PrescribedActive(f0=geo.f0, mesh=mesh, lat_ms=lat, celltype=ct, profiles=PROFILES,
-                          ta_d_kpa=TA_D_KPA, pcl_ms=PCL_MS, formulation=FORMULATION)
+                          ta_d=TA_D, pcl_ms=PCL_MS, formulation=FORMULATION)
 material = ScaledModel(
     pulse.HolzapfelOgden(f0=geo.f0, s0=geo.s0, **ho_params(MATERIAL_PARAMS),
                          use_heaviside=not FIBRE_COMPRESSION_RESISTANCE,
