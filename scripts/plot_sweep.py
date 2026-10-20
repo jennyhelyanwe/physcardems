@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from physcardems.plotting import ejection_metrics
-from physcardems.prescribed import CELLTYPES, celltype_profiles, diastolic_ta, ta_shape
+from physcardems.prescribed_ta import CELLTYPES, celltype_profiles, diastolic_ta, ta_shape
 
 ap = argparse.ArgumentParser()
 ap.add_argument("study_dir", help="e.g. runs/ta_lhs")
