@@ -5,13 +5,14 @@ name = "rodero_05"
 [geometry]
 dir = "rodero_05_dolfinx_v2"        # converted dolfinx geometry (cell tags, fibres, node fields)
 myocardium_cell_tags = [1, 2]
+rv_myocardium_cell_tags = [2]          # 1 LV myo, 2 RV myo, 7-10 valve plugs
 
 [geometry.tags]                     # facet tags
 LV = 30
 RV = 20
 EPI = 40
 BASE = 10
-rv_myocardium_cell_tags = [2]          # 1 LV myo, 2 RV myo, 7-10 valve plugs
+
 
 [ecg]
 electrodes = "rodero_05_fine_nodefield_electrode_xyz.csv"
