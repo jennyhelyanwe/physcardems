@@ -99,12 +99,25 @@ front = ["status", "LVEF", "EDVL", "ESVL", "SVL", "PmaxL", "EDPL", "dvdt_ejectio
 result = result.reindex(columns=front + [c for c in result.columns if c not in front])
 result.to_csv(study / "results.csv")
 
+def md_table(df, index_name="id"):
+    """Markdown table without extra dependencies; floats to 3 significant figures."""
+    def fmt(v):
+        if isinstance(v, (float, np.floating)):
+            return "" if np.isnan(v) else (f"{v:.0f}" if float(v).is_integer() else f"{v:.3g}")
+        return str(v)
+    cols = list(df.columns)
+    lines = ["| " + " | ".join([index_name] + cols) + " |", "|" + "---|" * (len(cols) + 1)]
+    lines += ["| " + " | ".join([str(i)] + [fmt(v) for v in row]) + " |"
+              for i, row in zip(df.index, df.itertuples(index=False))]
+    return "\n".join(lines)
+
+
 counts = result["status"].value_counts().to_dict()
-print(f"{study}: {len(result)} samples, " + ", ".join(f"{v} {k}" for k, v in counts.items()))
-print("targets: " + ", ".join(f"{c.biomarker} {c.lower:g}-{c.upper:g} {c.units}" for c in criteria))
-with pd.option_context("display.width", 200, "display.max_columns", 20, "display.precision", 3):
-    print(result[front[:-1]].head(args.top))
-print(f"wrote {study / 'results.csv'}")
+print(f"- {study}: {len(result)} samples, " + ", ".join(f"{v} {k}" for k, v in counts.items()))
+print("- Targets: " + ", ".join(f"{c.biomarker} {c.lower:g}-{c.upper:g} {c.units}" for c in criteria))
+print()
+print(md_table(result[front[:-1]].head(args.top)))
+print(f"\nwrote {study / 'results.csv'}")
 
 if args.summary:
     comp = result[result["status"] == "complete"]
