@@ -22,6 +22,7 @@ class Criterion:
     stage: str = "calibration"   # "calibration" or "validation"
     group: str = ""              # e.g. "pressure_volume", "ecg"
     units: str = ""
+    source: str = ""
 
     def _scale(self) -> float:
         if self.scale is not None:
