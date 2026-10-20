@@ -8,8 +8,8 @@ pressure-volume criteria in criteria.toml.
     python3 scripts/collect_sweep.py runs/ta_lhs_test
 
 Writes runs/<study>/results.csv (one row per sample, best first) and prints the top rows.
-Status: complete = first beat reached IVR in both ventricles and the run ended normally;
-running = no metrics.json yet (still running, or stopped by the time limit);
+Status: complete = both ventricles have entered IVR, so the first-beat biomarkers are final
+(the run may still be going); running = not there yet; failed = the run ended before that.
 failed = the run ended (metrics.json written) before completing ejection, e.g. a solver failure.
 """
 import argparse
@@ -69,7 +69,10 @@ for i in params.index:
         continue
     bm, complete = biomarkers_from_log(log)
     finished = (sdir / "metrics.json").exists()
-    bm["status"] = "complete" if (complete and finished) else ("failed" if finished else "running")
+    # bm["status"] = "complete" if (complete and finished) else ("failed" if finished else "running")
+    # the first-beat biomarkers are final once both ventricles have entered IVR,
+    # whether or not the run has reached t_end
+    bm["status"] = "complete" if complete else ("failed" if finished else "running")
     rows[i] = bm
 bm = pd.DataFrame.from_dict(rows, orient="index")
 bm.index.name = "id"
