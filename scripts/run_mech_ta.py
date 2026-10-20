@@ -263,6 +263,32 @@ vtx_all = dolfinx.io.VTXWriter(comm, OUTDIR / "simulation.bp",
                                [u_out, ta_out, lam_out, ct_out, lat_out, myo_out], engine="BP4")
 
 
+# per-cell-type traces of Ta and fibre stretch (myocardium only), for driving single-cell models
+ct_dg1 = dolfinx.fem.Function(DG1)
+ct_dg1.interpolate(ct_out)
+ct_dofs = np.rint(ct_dg1.x.array).astype(int)
+ACTIVE_STATS_HEADER = ("t_ms," + ",".join(f"Ta_med_{n}_kPa,lambda_p10_{n},lambda_med_{n},lambda_p90_{n}"
+                                          for n in CELLTYPES.values()))
+active_stats_rows = []
+
+
+def record_active_stats(t_ms):
+    row = [t_ms]
+    lam = active.lmbda.x.array
+    for c in CELLTYPES:
+        node_sel = myo_nodes & (ct == c)
+        dof_sel = myo_dofs & (ct_dofs == c)
+        ta_med = float(np.median(active.Ta.x.array[node_sel]) / 1e3) if node_sel.any() else np.nan
+        lam_q = np.percentile(lam[dof_sel], [10, 50, 90]) if dof_sel.any() else [np.nan] * 3
+        row += [ta_med, *map(float, lam_q)]
+    active_stats_rows.append(row)
+
+
+def save_active_stats():
+    if active_stats_rows:
+        np.savetxt(OUTDIR / "active_stats.csv", np.array(active_stats_rows), delimiter=",",
+                   header=ACTIVE_STATS_HEADER, comments="")
+
 def write_outputs(t_ms):
     u_out.interpolate(problem.u)
     ta_out.x.array[:] = active.Ta.x.array * myo_frac / 1e3
@@ -372,10 +398,12 @@ for k in range(k0 + 1, n_total + 1):
         write_checkpoint(t_ms)
     if (k - k0) % PLOT_EVERY == 0:
         save_log(np.array(log))
+        save_active_stats()
 
 vtx_all.close()
 if log:
     arr = np.array(log)
     save_log(arr)
     save_metrics(arr)
+    save_active_stats()
     logger.info(f"Finished at t={log[-1][0]:.1f} ms; output in {OUTDIR}")
