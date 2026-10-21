@@ -2,7 +2,7 @@
 # amplitude, LV afterload, and RV preload. Ta_d fixed at the cell-model values (base.toml),
 # sigma_decay fixed (no effect on any output in ta_lhs).
 base = "base.toml"            # relative to this file
-study = "ta_lhs2"             # output in runs/<study>/
+study = "ta_lhs2_full"        # output in runs/<study>/
 n_samples = 128
 seed = 20261021
 
@@ -22,4 +22,4 @@ a_rise = [0.6, 2.5]           # 0.99 -> 0.59 to 2.5 (up to a much slower onset)
 
 [override]
 "time.t_end_ms" = 800.0
-"time.stop_after_ivr_ms" = 20.0   # biomarkers are final once both ventricles are in IVR
+#"time.stop_after_ivr_ms" = 20.0   # biomarkers are final once both ventricles are in IVR
