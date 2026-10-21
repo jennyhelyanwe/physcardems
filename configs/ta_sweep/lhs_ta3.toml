@@ -1,0 +1,30 @@
+# configs/ta_sweep/lhs_ta3.toml
+# Third prescribed-Ta LHS, informed by the ta_lhs2 Spearman correlations and eLife: peak pressure
+# follows the arterial pressure at valve opening, so p_init is swept for both ventricles (the RV
+# default of 3 kPa was above physiological PA diastolic pressure). Later Ta peaks to slow ejection
+# and lower PmaxL; low characteristic impedance (it raises PmaxL strongly); LV compliance;
+# pulmonary Windkessel; higher RV preload.
+base = "base.toml"
+study = "ta_lhs3"
+n_samples = 512
+seed = 20261022
+
+[factors]
+Ta_peak_kpa = [9.0, 15.0]     # 27 kPa endo -> 243 to 405 kPa; drives LVEF (rho 0.95)
+t_peak_ms = [1.4, 2.4]        # 167 ms -> 234 to 401 ms; lowers both dV/dt and PmaxL
+a_rise = [0.8, 2.5]           # weak effect in ta_lhs2
+
+[values]
+"active.rv_Ta_scale" = [0.8, 1.8]
+"circulation.lv.windkessel.p_init_pa" = [8000.0, 11000.0]                    # 60 to 83 mmHg aortic diastolic; base 9000
+"circulation.lv.windkessel.resistance_mmhg_s_per_ml" = [0.9, 1.3]            # base 1.1; little effect within one beat
+"circulation.lv.windkessel.compliance_ml_per_mmhg" = [0.8, 2.5]              # base 1.5
+"circulation.lv.windkessel.characteristic_impedance_mmhg_s_per_ml" = [0.02, 0.06]   # base 0.03
+"circulation.rv.windkessel.p_init_pa" = [1100.0, 2200.0]                     # 8 to 16 mmHg PA diastolic; base 3000 was too high
+"circulation.rv.windkessel.resistance_mmhg_s_per_ml" = [0.06, 0.20]          # base 0.1
+"circulation.rv.windkessel.compliance_ml_per_mmhg" = [2.0, 7.0]              # base 4.0
+"circulation.rv.windkessel.characteristic_impedance_mmhg_s_per_ml" = [0.005, 0.03]  # base 0.01
+"circulation.rv.p_end_diastole_pa" = [600.0, 1200.0]
+
+[override]
+"time.t_end_ms" = 800.0
