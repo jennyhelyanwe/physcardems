@@ -3,8 +3,12 @@
 # Same physics as run_em.py: monodomain ToR-ORd-Land (EP half of the zeta split) driven
 # by a prescribed activation map, Land zeta states in UFL, dynamic mechanics, and the
 # five-phase cycle controller with a 3-element Windkessel, here for one cavity (LV).
-# The basal plane is held in its normal direction ([geometry] base_normal_axis in the
-# case); epicardial and basal springs come from [mechanics.boundary] in the config.
+# Boundary conditions ([mechanics.boundary] in the config): epicardial normal spring and damping,
+# a weak in-plane basal spring (removes rotation about the long axis), and the base either held in
+# its normal direction (base = "fixed_normal", default) or free (base = "free"). With a free base the
+# cavity volume is measured from the current basal plane (mean basal displacement, lagged one step).
+# Optional: sigmoidal Tref ([land.tref_sigmoid]) so a large systolic Tref does not scale resting
+# tension; filling mode ([circulation.lv] filling_mode = "volume" | "pressure" | "gain").
 # Outputs (in runs/<case>/<config name>/): log.csv (columns in physcardems.plotting_lv),
 # summary.png, metrics.json (biomarkers per beat), pseudo_ecg.csv/.png, simulation.bp
 # (open in ParaView), checkpoints/. Serial only.
@@ -82,6 +86,8 @@ REFERENCE_LV_VOLUME_ML = m.get("reference_lv_volume_ml")
 PRECONDITIONER_LAG = m["preconditioner_lag"]
 MATERIAL_PARAMS = dict(m["material"])
 BOUNDARY = m.get("boundary", {})
+BASE_MODE = BOUNDARY.get("base", "fixed_normal")   # "fixed_normal" (base held along its normal) or "free"
+assert BASE_MODE in ("fixed_normal", "free"), f"unknown [mechanics.boundary] base = {BASE_MODE}"
 
 # cell model and Land parameters (base values in parameters.py, changes in the config)
 LAND = mp.land_values(overrides=cfg["land"]["overrides"], scales=cfg["land"]["scales"])
@@ -102,7 +108,12 @@ ML_PER_MMHG = 1e-6 / 133.322
 
 
 def cycle_params(c):
+    """[circulation.lv] -> CycleParams. Filling: filling_mode = "volume" (prescribed inflow,
+    filling_rate_ml_per_ms), "pressure" (held at the filling pressure, refills as the tissue relaxes),
+    or "gain" (Alya-style relaxation law, gain_relaxation_kpa_per_ml and gain_relaxation_kpa_ms_per_ml)."""
     wk = c["windkessel"]
+    mode = c.get("filling_mode", "volume")
+    assert mode in ("volume", "pressure", "gain"), f"unknown filling_mode {mode}"
     return CycleParams(
         t_zero=c["t_zero_s"], preload_pressure=c["preload_pressure_pa"],
         t_end_diastole=c["t_end_diastole_s"], p_end_diastole=c["p_end_diastole_pa"],
@@ -112,7 +123,11 @@ def cycle_params(c):
             resistance=wk["resistance_mmhg_s_per_ml"] * MMHG_S_PER_ML,
             compliance=wk["compliance_ml_per_mmhg"] * ML_PER_MMHG,
             characteristic_impedance=wk["characteristic_impedance_mmhg_s_per_ml"] * MMHG_S_PER_ML),
-        filling_rate=c["filling_rate_ml_per_ms"] * ML_PER_MS,
+        filling_rate=c["filling_rate_ml_per_ms"] * ML_PER_MS if mode == "volume" else None,
+        filling_gain=(mode == "gain"),
+        gain_relaxation=((c.get("gain_relaxation_kpa_per_ml", 0.0) * 1e9,       # kPa/mL -> Pa/m^3
+                          c.get("gain_relaxation_kpa_ms_per_ml", 0.0) * 1e6)      # kPa ms/mL -> Pa s/m^3
+                         if mode == "gain" else (0.0, 0.0)),
     )
 
 
@@ -181,6 +196,23 @@ logger.info(f"Reference scaling {ref_scale:.4f}: LV {V_ref_ml:.1f} -> {cavity_vo
 
 geometry = pulse.HeartGeometry.from_cardiac_geometries(geo, metadata={"quadrature_degree": QUAD_DEGREE})
 mesh = geometry.mesh
+
+# With a free base the basal cap leaves its reference plane, so measure the cavity volume from the
+# current basal plane: shift the origin of -1/3 (x + u).n to the mean base position, updated each
+# step from the last converged state. Must be set before any form is built.
+volume_shift = dolfinx.fem.Constant(mesh, np.zeros(3, dtype=dolfinx.default_scalar_type))
+if BASE_MODE == "free":
+    assert BASE_NORMAL_AXIS is not None, "a free base needs [geometry] base_normal_axis in the case"
+    _X, _N = ufl.SpatialCoordinate(mesh), ufl.FacetNormal(mesh)
+
+    def _volume_form(u=None):
+        if u is None:
+            return (-1.0 / 3.0) * ufl.dot(_X - volume_shift, _N)
+        F = ufl.Identity(3) + ufl.grad(u)
+        return (-1.0 / 3.0) * ufl.det(F) * ufl.dot(_X + u - volume_shift, ufl.inv(F).T * _N)
+
+    geometry.volume_form = _volume_form
+logger.info(f"Base: {BASE_MODE}")
 
 DG0 = dolfinx.fem.functionspace(mesh, ("DG", 0))
 myo_mask = dolfinx.fem.Function(DG0, name="myocardium")
@@ -255,7 +287,6 @@ logger.info(f"EP: {N} nodes, {y0.shape[0]} states, LAT {lat.min():.1f} to {lat.m
 # ------------------------------------------------------------------ mechanics
 mech_land = mp.mechanics_parameters(LAND)
 logger.info(f"Land (mechanics side): {mech_land}")
-
 TREF_SIGMOID = cfg["land"].get("tref_sigmoid")
 zeta_kwargs = dict(f0=geo.f0, s0=geo.s0, n0=geo.n0, mesh=mesh, dt_ms=DT_MECH_MS, parameters=mech_land)
 if TREF_SIGMOID:
@@ -266,8 +297,6 @@ if TREF_SIGMOID:
                 f"(n_half {TREF_SIGMOID['n_half']}, width {TREF_SIGMOID['width']})")
 else:
     zeta = ZetaSplitConstDt(**zeta_kwargs)
-
-# zeta = ZetaSplitConstDt(f0=geo.f0, s0=geo.s0, n0=geo.n0, mesh=mesh, dt_ms=DT_MECH_MS, parameters=mech_land)
 material = ScaledModel(
     pulse.HolzapfelOgden(f0=geo.f0, s0=geo.s0, **ho_params(MATERIAL_PARAMS),
                          use_heaviside=not FIBRE_COMPRESSION_RESISTANCE,
@@ -293,7 +322,7 @@ if k_base > 0.0:  # in-plane basal springs remove the free rotation about the lo
     robin.append(pulse.RobinBC(value=pulse.Variable(_const(k_base), "Pa / m"),
                                marker=TAGS["BASE"], perpendicular=True))
 dirichlet = []
-if BASE_NORMAL_AXIS is not None:
+if BASE_NORMAL_AXIS is not None and BASE_MODE == "fixed_normal":
     base_facets = geometry.facet_tags.find(TAGS["BASE"])
 
     def base_normal_bc(V):
@@ -326,6 +355,20 @@ monitor = CavityMonitor(problem)
 states = {"LV": CavityState(name="LV", params=lv_params)}
 controller = BiVCycleController(problem, monitor, states, restore_lag=PRECONDITIONER_LAG)
 logger.info("Mechanics problem ready")
+
+# basal displacement along the long axis: mean (sets the volume origin for a free base) and spread
+_ds_base = ufl.Measure("ds", domain=mesh, subdomain_data=geometry.facet_tags)(TAGS["BASE"])
+_base_area = dolfinx.fem.assemble_scalar(dolfinx.fem.form(1.0 * _ds_base))
+_ax = BASE_NORMAL_AXIS if BASE_NORMAL_AXIS is not None else 0
+_base_u = dolfinx.fem.form(problem.u[_ax] * _ds_base)
+_base_u2 = dolfinx.fem.form(problem.u[_ax] ** 2 * _ds_base)
+
+
+def base_motion():
+    """Mean and standard deviation of the basal displacement along the long axis (m)."""
+    mean = dolfinx.fem.assemble_scalar(_base_u) / _base_area
+    var = max(dolfinx.fem.assemble_scalar(_base_u2) / _base_area - mean**2, 0.0)
+    return mean, var ** 0.5
 
 # ------------------------------------------------------------------ EP <-> mechanics transfers (same mesh)
 DG1 = zeta.function_space
@@ -541,6 +584,9 @@ for k in range(k0 + 1, n_total + 1):
 
     ep_to_mech()
     zeta.t.value = t_ms
+    base_dx, base_sd = base_motion()                 # from the last converged step
+    if BASE_MODE == "free":
+        volume_shift.value[_ax] = base_dx
     phases_before = {m: s.phase for m, s in states.items()}
     try:
         out = controller.step(t_ms / 1e3, DT_MECH_MS / 1e3)
@@ -566,7 +612,7 @@ for k in range(k0 + 1, n_total + 1):
     logger.info(
         f"t={t_ms:6.1f} ms | Ta max {ta_myo.max():6.1f} kPa, lambda [{lam_myo.min():.3f}, {lam_myo.max():.3f}] | "
         f"LV {PHASE_NAMES[lv['phase']]:8s} V={lv['V'] * 1e6:6.1f} mL P={lv['P'] / 1e3:6.2f} kPa "
-        f"Q={lv['Q'] * 1e6:6.1f} mL/s | "
+        f"Q={lv['Q'] * 1e6:6.1f} mL/s | base dx {base_dx * 1e3:+5.2f} mm (sd {base_sd * 1e3:.2f}) | "
         f"its={nit} J=[{Jmin:.3f}, {Jmax:.3f}] inv={ninv} | EP {wall_ep:.1f} s, total {wall:.1f} s")
 
     transition = any(out[m]["phase"] != phases_before[m] for m in states)
