@@ -17,7 +17,8 @@ mkdir -p runs/_logs
 logname() { echo "runs/_logs/$(echo "$1" | tr '/' '_' | sed 's/\.\(toml\|json\)$//').log"; }
 run_one() {
   $PCE_RUN "$PCE_SCRIPT" "$1" > "$(logname "$1")" 2>&1
-  echo "$(date +%T) finished (exit $?) $1"
+  local rc=$?
+  echo "$(date +%T) finished (exit $rc) $1"
 }
 export -f run_one logname
 
