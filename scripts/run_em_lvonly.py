@@ -30,7 +30,7 @@ import cardiac_geometries.geometry
 
 from physcardems.cavity import ControlledCavityDynamicProblem, CavityMonitor
 from physcardems.cycle import PHASE_NAMES, CycleParams, WindkesselParams, CavityState, BiVCycleController
-from physcardems.active import ZetaSplitConstDt
+from physcardems.active import ZetaSplitConstDt, ZetaSplitSigmoidTref
 from physcardems import parameters as mp
 from physcardems import ecg as pseudo_ecg
 from physcardems.config import load_config, save_config
@@ -255,7 +255,19 @@ logger.info(f"EP: {N} nodes, {y0.shape[0]} states, LAT {lat.min():.1f} to {lat.m
 # ------------------------------------------------------------------ mechanics
 mech_land = mp.mechanics_parameters(LAND)
 logger.info(f"Land (mechanics side): {mech_land}")
-zeta = ZetaSplitConstDt(f0=geo.f0, s0=geo.s0, n0=geo.n0, mesh=mesh, dt_ms=DT_MECH_MS, parameters=mech_land)
+
+TREF_SIGMOID = cfg["land"].get("tref_sigmoid")
+zeta_kwargs = dict(f0=geo.f0, s0=geo.s0, n0=geo.n0, mesh=mesh, dt_ms=DT_MECH_MS, parameters=mech_land)
+if TREF_SIGMOID:
+    tref_rest = LAND["Tref"] / cfg["land"]["scales"].get("Tref", 1.0) * TREF_SIGMOID["rest_scale"]
+    zeta = ZetaSplitSigmoidTref(tref_rest=tref_rest, n_half=TREF_SIGMOID["n_half"],
+                                width=TREF_SIGMOID["width"], **zeta_kwargs)
+    logger.info(f"Sigmoidal Tref: {tref_rest:.0f} kPa at rest -> {mech_land['Tref']:.0f} kPa when active "
+                f"(n_half {TREF_SIGMOID['n_half']}, width {TREF_SIGMOID['width']})")
+else:
+    zeta = ZetaSplitConstDt(**zeta_kwargs)
+
+# zeta = ZetaSplitConstDt(f0=geo.f0, s0=geo.s0, n0=geo.n0, mesh=mesh, dt_ms=DT_MECH_MS, parameters=mech_land)
 material = ScaledModel(
     pulse.HolzapfelOgden(f0=geo.f0, s0=geo.s0, **ho_params(MATERIAL_PARAMS),
                          use_heaviside=not FIBRE_COMPRESSION_RESISTANCE,
