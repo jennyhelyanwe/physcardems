@@ -1,0 +1,17 @@
+# lv_ellipsoid_legacy: converted by convert_legacy_ellipsoid.py
+name = "lv_ellipsoid_legacy"
+
+[geometry]
+dir = "geometry"
+myocardium_cell_tags = [1]
+cavities = ["LV"]
+base_normal_axis = 0
+
+[geometry.tags]
+LV = 6
+EPI = 7
+BASE = 5
+
+[ecg]
+electrodes = "geometry/electrodes_m.csv"
+unit_scale = 1.0

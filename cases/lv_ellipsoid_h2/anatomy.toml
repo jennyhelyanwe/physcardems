@@ -1,0 +1,25 @@
+# Anatomy and EP set-up for the teaching LV ellipsoid.
+# Regenerate after editing: python3 scripts/make_lv_ellipsoid.py cases/lv_ellipsoid/anatomy.toml
+# This is the UNLOADED reference configuration; preload inflates it to end-diastole.
+name = "lv_ellipsoid_h2"
+
+[anatomy]                       # mm; prolate ellipsoids truncated by a basal plane
+r_short_endo_mm = 21.0          # equatorial cavity radius
+r_short_epi_mm = 30.0           # equatorial epicardial radius
+r_long_endo_mm = 68.0           # equator to endocardial apex
+r_long_epi_mm = 76.0            # equator to epicardial apex (apical wall ~ 8 mm)
+base_height_mm = 8.0            # basal plane above the equator
+mesh_size_mm = 2.0
+fibre_angle_endo_deg = -60.0    # cardiac-geometries sign convention: (-60, +60) gives the
+fibre_angle_epi_deg = 60.0      # physiological right-handed endo / left-handed epi helix
+
+[activation]                    # graph-eikonal activation map (prescribed stimulus times)
+cv_fibre_m_per_s = 0.6
+cv_cross_m_per_s = 0.3
+cv_endo_m_per_s = 2.0           # fast endocardial layer standing in for the Purkinje network
+endo_layer_max_height = 0.85    # 0 apex, 1 base: basal endocardium has no fast layer
+roots = [[0.45, 0.0], [0.6, 90.0], [0.6, -90.0]]   # [height, angle from septal +y (deg)]
+
+[celltypes]                     # transmural bands, 0 endo -> 1 epi
+endo_fraction = 0.3
+mid_fraction = 0.3

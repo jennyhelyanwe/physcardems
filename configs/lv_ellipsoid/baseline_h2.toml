@@ -1,0 +1,65 @@
+# LV ellipsoid, coupled EM baseline: eLife cell/Land parameters, Tref x7, two beats.
+# Run with: python3 scripts/run_em_lvonly.py configs/lv_ellipsoid/baseline_h4.toml
+case = "../../cases/lv_ellipsoid_h2/case.toml"
+
+[time]
+dt_mech_ms = 2.0
+dt_ep_ms = 0.05
+t_end_ms = 1600.0
+pcl_ms = 800.0
+output_every_ms = 2.0
+checkpoint_every_ms = 50.0
+plot_every = 10
+
+[restart]
+from = ""
+
+[ep]
+conductivities = "Niederer"
+lat_shift_ms = -120.0           # LAT starts at 0, so stimulus begins at 120 ms (end of preload)
+dt_ecg_ms = 1.0
+
+[mechanics]
+quad_degree = 4
+kappa_pa = 1e6
+valve_stiffness_scale = 1.0     # no valve plugs in the ellipsoid
+fibre_compression_resistance = false
+reference_scale = 1.0           # geometry is already the unloaded reference
+preconditioner_lag = 20
+
+[mechanics.boundary]
+epi_spring_pa_per_m = 1e7       # rodero_05 uses 1e8; a calibration parameter here
+epi_damping_pa_s_per_m = 5e3
+base_tangential_spring_pa_per_m = 1e6
+
+[mechanics.material]            # Holzapfel-Ogden; a-values in kPa, b-values dimensionless
+a = 0.61
+b = 7.5
+a_f = 1.56
+b_f = 35.31
+a_s = 0.7
+b_s = 33.24
+a_fs = 0.46
+b_fs = 5.09
+
+[land]
+overrides = { cat50_ref = 0.534 }
+scales = { kws = 3.86, Tref = 7.0 }
+
+[cell]
+ep_overrides = {}
+ep_scales = { PCa_b = 2.0 }
+
+[circulation.lv]
+t_zero_s = 0.05
+preload_pressure_pa = 500.0
+t_end_diastole_s = 0.12
+p_end_diastole_pa = 1000.0
+p_fill_pa = 500.0
+filling_rate_ml_per_ms = 0.046
+
+[circulation.lv.windkessel]
+p_init_pa = 9000.0
+resistance_mmhg_s_per_ml = 1.1
+compliance_ml_per_mmhg = 1.5
+characteristic_impedance_mmhg_s_per_ml = 0.03
