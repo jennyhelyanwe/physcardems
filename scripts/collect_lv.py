@@ -23,6 +23,7 @@ TARGETS = {"EDV_mL": "edvl", "ESV_mL": "esvl", "SV_mL": "svl", "LVEF_pct": "lvef
 ap = argparse.ArgumentParser()
 ap.add_argument("study")
 ap.add_argument("--top", type=int, default=15)
+ap.add_argument("--beat", type=int, default=1, help="which complete beat to report (1 = first)")
 args = ap.parse_args()
 study = Path(args.study)
 with open(files("physcardems") / "data" / "criteria.toml", "rb") as f:
@@ -51,7 +52,8 @@ for name in sorted(samples) or sorted(p.parent.name for p in study.glob("*/log.c
     row.update({"status": f"{len(done)} beat(s)" if done else "running/failed",
                 "t_reached_ms": float(log["t_ms"][-1])})
     if done:
-        b = done[-1]
+        # b = done[-1]
+        b = done[args.beat - 1] if len(done) >= args.beat else done[-1]
         row.update({k: b[k] for k in TARGETS})
         row["n_pass"] = sum(lo <= b[k] <= hi for k, (lo, hi) in ranges.items())
     rows.append(row)
