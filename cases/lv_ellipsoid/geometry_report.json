@@ -1,0 +1,47 @@
+{
+  "cavity_volume_ml": 73.05545994810026,
+  "wall_volume_ml": 91.8500311139182,
+  "lv_mass_g": 96.44253266961412,
+  "cavity_long_axis_mm": 76.0,
+  "epi_long_axis_mm": 84.0,
+  "mid_cavity_diameter_mm": 37.69804270021904,
+  "basal_cavity_diameter_mm": 41.708329804566695,
+  "mid_wall_thickness_mm": 8.693059235193129,
+  "apical_wall_thickness_mm": 8.000000000000007,
+  "sphericity_index": 0.4960268776344611,
+  "mass_to_volume_g_per_ml": 1.320127650118532,
+  "cells": 6545,
+  "vertices": 1746,
+  "analytic": {
+    "cavity_ml": 73.83912408494928,
+    "wall_ml": 91.95342428643539
+  },
+  "helix_angle_deg_right_handed_positive": {
+    "endo": 41.92341263677949,
+    "mid": 0.0,
+    "epi": -40.15842041544746
+  },
+  "lat_total_activation_ms": 95.46391924068308,
+  "celltype_fraction_nodes": {
+    "endo": 0.2686139747995418,
+    "epi": 0.5515463917525774,
+    "mid": 0.17983963344788087
+  },
+  "activation_roots_m": [
+    [
+      -0.045331322917685136,
+      0.017265806682631536,
+      0.003158939688861978
+    ],
+    [
+      -0.033012437864550895,
+      2.800852976671305e-18,
+      0.019527754386085103
+    ],
+    [
+      -0.03301243786455088,
+      -2.371954046809578e-18,
+      -0.019527754386085096
+    ]
+  ]
+}
