@@ -46,6 +46,11 @@ b_fs = 5.09
 overrides = { cat50_ref = 0.534 }
 scales = { kws = 3.86, Tref = 7.0 }
 
+[land.tref_sigmoid]             # Tref rises with activation n = active fraction / rs (0 to 1)
+rest_scale = 1.0                # Tref at rest = unscaled Land Tref (120 kPa) x this
+n_half = 0.08                   # n at the midpoint of the switch; rest n ~ 0.005-0.018, isometric peak ~ 0.7
+width = 0.015                   # switch width in n
+
 [cell]
 ep_overrides = {}
 ep_scales = { PCa_b = 2.0 }
