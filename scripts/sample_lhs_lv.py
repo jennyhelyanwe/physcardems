@@ -1,11 +1,15 @@
 """Latin hypercube sample of LV run configs (JSON) around a base config.
 
-    python3 scripts/sample_lhs_lv.py configs/lv_ellipsoid/baseline.toml lv_lhs1 --n 96 --seed 20261023
+    python3 scripts/sample_lhs_lv.py configs/lv_ellipsoid/baseline.toml lv_lhs1 --n 96
+    python3 scripts/sample_lhs_lv.py configs/lv_ellipsoid/baseline.toml lv_passive1 --n 48 \
+        --factors configs/lv_ellipsoid/passive_factors.toml --set time.t_end_ms=130
 
 Writes runs/<study>/configs/<name>.json, runs/<study>/configs.txt (for run_pool.sh /
-archer2/sweep.slurm) and runs/<study>/samples.csv. Each run's output goes to runs/<study>/<name>/.
-FACTORS below: dotted path into the config -> (low, high, "lin" or "log").
-All factors here are mechanics or circulation parameters, so every sample shares one steady state.
+archer2/sweep.slurm), runs/<study>/samples.csv and runs/<study>/spec.json.
+Factors: dotted path into the config -> [low, high, "lin" or "log"], from FACTORS below or from
+--factors (a TOML file with a [factors] table). The special factor "material_a_scale" multiplies
+a, a_f, a_s and a_fs in [mechanics.material]. --set path=value fixes a value in every sample
+(values are parsed as JSON, so strings need their own quotes: 'mechanics.boundary.base="free"').
 """
 import argparse
 import csv
@@ -26,19 +30,37 @@ FACTORS = {
     "circulation.lv.windkessel.compliance_ml_per_mmhg": (0.8, 2.5, "lin"),
     "circulation.lv.windkessel.characteristic_impedance_mmhg_s_per_ml": (0.02, 0.06, "lin"),
 }
+A_KEYS = ("a", "a_f", "a_s", "a_fs")
+
+
+def set_path(d, dotted, value):
+    keys = dotted.split(".")
+    for k in keys[:-1]:
+        d = d.setdefault(k, {})
+    d[keys[-1]] = value
+
 
 ap = argparse.ArgumentParser()
 ap.add_argument("base")
 ap.add_argument("study")
 ap.add_argument("--n", type=int, default=96)
 ap.add_argument("--seed", type=int, default=20261023)
+ap.add_argument("--factors", default=None, help="TOML file with a [factors] table (replaces FACTORS)")
+ap.add_argument("--set", nargs="*", default=[], help="fixed values for every sample, e.g. time.t_end_ms=130")
 args = ap.parse_args()
+
+if args.factors:
+    with open(args.factors, "rb") as f:
+        FACTORS = {k: tuple(v) for k, v in tomllib.load(f)["factors"].items()}
 
 base_path = Path(args.base).resolve()
 with open(base_path, "rb") as f:
     base = tomllib.load(f)
 base["case"] = str((base_path.parent / base["case"]).resolve())   # absolute, so configs can live anywhere
 assert "tref_sigmoid" in base.get("land", {}), "base config needs a [land.tref_sigmoid] section"
+for item in args.set:
+    key, val = item.split("=", 1)
+    set_path(base, key, json.loads(val))
 
 study = Path("runs") / args.study
 (study / "configs").mkdir(parents=True, exist_ok=True)
@@ -49,19 +71,15 @@ for j, (lo, hi, scale) in enumerate(FACTORS.values()):
     values[:, j] = (np.exp(np.log(lo) + u[:, j] * (np.log(hi) - np.log(lo))) if scale == "log"
                     else lo + u[:, j] * (hi - lo))
 
-
-def set_path(d, dotted, value):
-    keys = dotted.split(".")
-    for k in keys[:-1]:
-        d = d.setdefault(k, {})
-    d[keys[-1]] = value
-
-
 rows, paths = [], []
 for i in range(args.n):
     cfg = json.loads(json.dumps(base))
     for key, val in zip(FACTORS, values[i]):
-        set_path(cfg, key, float(val))
+        if key == "material_a_scale":
+            for a in A_KEYS:
+                cfg["mechanics"]["material"][a] = base["mechanics"]["material"][a] * float(val)
+        else:
+            set_path(cfg, key, float(val))
     name = f"s{i:03d}"
     cfg["outdir"] = str(study / name)
     p = study / "configs" / f"{name}.json"
@@ -75,5 +93,5 @@ with open(study / "samples.csv", "w", newline="") as f:
     w.writeheader()
     w.writerows(rows)
 (study / "spec.json").write_text(json.dumps({"base": str(base_path), "n": args.n, "seed": args.seed,
-                                             "factors": FACTORS}, indent=2))
+                                             "factors": FACTORS, "set": args.set}, indent=2))
 print(f"{args.n} samples over {len(FACTORS)} factors in {study}; list in {study}/configs.txt")
