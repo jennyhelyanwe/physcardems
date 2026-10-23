@@ -28,4 +28,5 @@ CFG=runs/lv_ellipsoid/test_short_${NAME}.toml
 
 echo "$(date +%T) node $(hostname), config $CFG (from $SRC)"
 singularity exec -B "$PCE_WORK" "$PCE_IMAGE" "$PCE_VENV/bin/python3" scripts/run_em_lvonly.py "$CFG" 2>&1
-echo "$(date +%T) exit code $?"
+rc=$?
+echo "$(date +%T) exit code $rc"
