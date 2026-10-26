@@ -1,0 +1,73 @@
+# LV ellipsoid baseline (6 mm): free base, softened passive material, sigmoidal Tref.
+# Run with: python3 scripts/run_em_lvonly.py configs/lv_ellipsoid/baseline.toml
+case = "../../cases/lv_ellipsoid/case.toml"
+
+[time]
+dt_mech_ms = 2.0
+dt_ep_ms = 0.05
+t_end_ms = 1600.0
+pcl_ms = 800.0
+output_every_ms = 2.0
+checkpoint_every_ms = 50.0
+plot_every = 10
+
+
+[restart]
+from = ""
+
+[ep]
+conductivities = "Niederer"
+lat_shift_ms = -120.0           # LAT starts at 0, so stimulus begins at 120 ms (end of preload)
+dt_ecg_ms = 1.0
+
+[mechanics]
+quad_degree = 4
+kappa_pa = 1e6
+valve_stiffness_scale = 1.0
+fibre_compression_resistance = false
+reference_scale = 1.0
+preconditioner_lag = 20
+
+[mechanics.boundary]            # chosen from lv_passive1 (see NOTES.md)
+base = "free"
+epi_spring_pa_per_m = 2.5e7
+epi_damping_pa_s_per_m = 5e3
+base_tangential_spring_pa_per_m = 1e4
+
+[mechanics.material]            # eLife Holzapfel-Ogden with the a-values x 0.6 (lv_passive1)
+a = 0.366
+b = 7.5
+a_f = 0.936
+b_f = 35.31
+a_s = 0.42
+b_s = 33.24
+a_fs = 0.276
+b_fs = 5.09
+
+[land]
+overrides = { cat50_ref = 0.534 }
+scales = { kws = 3.86, Tref = 3.5 }
+
+[land.tref_sigmoid]
+rest_scale = 0.5
+n_half = 0.08
+width = 0.015
+
+[cell]
+ep_overrides = {}
+ep_scales = { PCa_b = 2.0 }
+
+[circulation.lv]
+t_zero_s = 0.05
+preload_pressure_pa = 500.0
+t_end_diastole_s = 0.12
+p_end_diastole_pa = 1100.0
+p_fill_pa = 500.0
+filling_rate_ml_per_ms = 0.046
+filling_mode = "pressure"            # add; the other lines stay as they are
+
+[circulation.lv.windkessel]
+p_init_pa = 9000.0
+resistance_mmhg_s_per_ml = 1.1
+compliance_ml_per_mmhg = 2.0
+characteristic_impedance_mmhg_s_per_ml = 0.02

@@ -1,71 +1,114 @@
-# LV ellipsoid baseline (6 mm): free base, softened passive material, sigmoidal Tref.
-# Run with: python3 scripts/run_em_lvonly.py configs/lv_ellipsoid/baseline.toml
-case = "../../cases/lv_ellipsoid/case.toml"
+# Baseline LV ellipsoid simulation (6 mm mesh): calibrated to a healthy female LV
+# (EDV ~94 mL, ESV ~35 mL, LVEF ~63%, peak pressure ~13.7 kPa). See configs/lv_ellipsoid/NOTES.md.
+#
+# Run:  python3 scripts/run_em_lvonly.py configs/lv_ellipsoid/baseline.toml
+# To change something, copy this file (e.g. to my_run.toml), edit the copy and run that.
+# Outputs go to runs/<case>/<config file name>/.
 
+case = "../../cases/lv_ellipsoid/case.toml"     # which anatomy (relative to this file)
+
+# ---------------------------------------------------------------------------- run length
 [time]
-dt_mech_ms = 2.0
-dt_ep_ms = 0.05
-t_end_ms = 1600.0
-pcl_ms = 800.0
-output_every_ms = 2.0
-checkpoint_every_ms = 50.0
-plot_every = 10
+pcl_ms = 800.0                  # cycle length (ms): 800 ms = 75 beats per minute
+t_end_ms = 1600.0               # simulated time (ms): 1600 = two beats; 800 = one beat (quicker)
+dt_mech_ms = 2.0                # mechanics time step (ms)
+dt_ep_ms = 0.05                 # electrophysiology time step (ms); dt_mech_ms must be a multiple
+output_every_ms = 2.0           # how often fields are written for ParaView
+checkpoint_every_ms = 50.0      # how often the full state is saved (for restarts)
+plot_every = 10                 # summary.png and log.csv are refreshed every this many mechanics steps
 
 [restart]
-from = ""
+from = ""                       # checkpoint path without extension to continue a run; "" = start at t = 0
 
-[ep]
-conductivities = "Niederer"
-lat_shift_ms = -120.0           # LAT starts at 0, so stimulus begins at 120 ms (end of preload)
-dt_ecg_ms = 1.0
+# ---------------------------------------------------------------------------- ion channels
+# Multipliers on ToR-ORd ionic conductances (1.0 = model default). Listed here are the usual ones;
+# uncomment a line to change it. Any change triggers a new single-cell steady state (a few minutes,
+# once per parameter set; reused afterwards).
+#   PCa_b   L-type calcium channel (ICaL): calcium entry, contraction strength
+#   GKr_b   rapid delayed rectifier K+ (IKr, hERG): repolarisation, QT
+#   GKs_b   slow delayed rectifier K+ (IKs)
+#   GK1_b   inward rectifier K+ (IK1): resting potential
+#   GNa     fast sodium (INa): upstroke, conduction
+#   GNaL_b  late sodium (INaL)
+#   Gto_b   transient outward K+ (Ito)
+#   Gncx_b  sodium-calcium exchanger (INaCa)
+#   Pnak_b  sodium-potassium pump (INaK)
+[cell]
+ep_overrides = {}               # absolute values, rarely needed
 
-[mechanics]
-quad_degree = 4
-kappa_pa = 1e6
-valve_stiffness_scale = 1.0
-fibre_compression_resistance = false
-reference_scale = 1.0
-preconditioner_lag = 20
+[cell.ep_scales]
+PCa_b = 2.0                     # eLife calibration (x2). A 50% ICaL block would be 1.0
+# GKr_b = 1.0
+# GKs_b = 1.0
+# GK1_b = 1.0
+# GNa = 1.0
+# GNaL_b = 1.0
+# Gto_b = 1.0
+# Gncx_b = 1.0
+# Pnak_b = 1.0
 
-[mechanics.boundary]            # chosen from lv_passive1 (see NOTES.md)
-base = "free"
-epi_spring_pa_per_m = 2.5e5
-epi_damping_pa_s_per_m = 5e3
-base_tangential_spring_pa_per_m = 1e4
+# ---------------------------------------------------------------------------- active tension (Land model)
+[land.scales]                   # multipliers on the Land parameters
+Tref = 3.5                      # PEAK ACTIVE TENSION: reference tension x this (120 kPa x 3.5 = 420 kPa).
+                                # Main control of contraction strength: higher -> smaller ESV, higher LVEF
+kws = 3.86                      # crossbridge cycling rate (eLife calibration); changes the steady state
 
-[mechanics.material]            # eLife Holzapfel-Ogden with the a-values x 0.6 (lv_passive1)
-a = 0.366
+[land.overrides]                # absolute values
+cat50_ref = 0.534               # calcium sensitivity of troponin (uM; lower = more sensitive). eLife value;
+                                # changes the steady state
+
+[land.tref_sigmoid]             # keeps resting (diastolic) tension low while systolic tension uses the full Tref
+rest_scale = 0.5                # Tref at rest = 120 kPa x this
+n_half = 0.08                   # activation level at which Tref switches from rest to full
+width = 0.015                   # sharpness of the switch
+
+# ---------------------------------------------------------------------------- passive stiffness
+[mechanics.material]            # Holzapfel-Ogden myocardium (eLife values); a in kPa, b dimensionless
+stiffness_scale = 0.6           # PASSIVE STIFFNESS: multiplies a, a_f, a_s, a_fs. Lower -> fills more (larger EDV)
+a = 0.61
 b = 7.5
-a_f = 0.936
+a_f = 1.56
 b_f = 35.31
-a_s = 0.42
+a_s = 0.7
 b_s = 33.24
-a_fs = 0.276
+a_fs = 0.46
 b_fs = 5.09
 
-[land]
-overrides = { cat50_ref = 0.534 }
-scales = { kws = 3.86, Tref = 7.0 }
+# ---------------------------------------------------------------------------- boundary conditions
+[mechanics.boundary]
+epi_spring_pa_per_m = 2.5e7     # EPICARDIAL STIFFNESS: pericardium-like spring on the outer surface.
+                                # Stiffer -> less whole-heart motion, but resists filling (smaller EDV)
+epi_damping_pa_s_per_m = 5e3    # damping on the outer surface
+base = "free"                   # "free": the base moves (descends in systole); "fixed_normal": base held
+base_tangential_spring_pa_per_m = 1e4   # weak in-plane spring at the base (stops the LV spinning)
 
-[land.tref_sigmoid]
-rest_scale = 0.5
-n_half = 0.08
-width = 0.015
-
-[cell]
-ep_overrides = {}
-ep_scales = { PCa_b = 2.0 }
-
+# ---------------------------------------------------------------------------- circulation
 [circulation.lv]
-t_zero_s = 0.05
-preload_pressure_pa = 500.0
-t_end_diastole_s = 0.12
-p_end_diastole_pa = 1100.0
-p_fill_pa = 500.0
-filling_rate_ml_per_ms = 0.046
+p_end_diastole_pa = 1100.0      # END-DIASTOLIC PRESSURE (Pa): higher -> larger EDV
+preload_pressure_pa = 500.0     # filling (atrial-like) pressure during diastole (Pa)
+p_fill_pa = 500.0               # relaxation ends (filling starts) when LV pressure drops below this (Pa)
+filling_mode = "pressure"       # LV refills at the filling pressure as the tissue relaxes
+t_zero_s = 0.05                 # initial pressure ramp (s); leave
+t_end_diastole_s = 0.12         # end of the preload ramp within each beat (s); activation starts here
+filling_rate_ml_per_ms = 0.046  # only used with filling_mode = "volume"
 
-[circulation.lv.windkessel]
-p_init_pa = 9000.0
-resistance_mmhg_s_per_ml = 1.1
-compliance_ml_per_mmhg = 1.5
-characteristic_impedance_mmhg_s_per_ml = 0.03
+[circulation.lv.windkessel]     # afterload: 3-element Windkessel (aorta + peripheral circulation)
+p_init_pa = 9000.0              # aortic pressure at the start (Pa): higher -> higher peak pressure
+resistance_mmhg_s_per_ml = 1.1  # peripheral resistance (anti-hypertensive drugs lower this)
+compliance_ml_per_mmhg = 2.0    # arterial compliance: lower (stiffer arteries) -> higher peak pressure
+characteristic_impedance_mmhg_s_per_ml = 0.02   # aortic impedance: higher -> higher peak pressure
+
+# ---------------------------------------------------------------------------- electrophysiology solver
+[ep]
+conductivities = "Niederer"     # tissue conductivities (monodomain)
+lat_shift_ms = -120.0           # activation starts 120 ms into each beat (end of preload)
+dt_ecg_ms = 1.0                 # pseudo-ECG sampling
+
+# ---------------------------------------------------------------------------- mechanics solver (leave alone)
+[mechanics]
+quad_degree = 4
+kappa_pa = 1e6                  # bulk modulus (near-incompressible tissue)
+valve_stiffness_scale = 1.0
+fibre_compression_resistance = false
+reference_scale = 1.0           # the anatomy is already the unloaded reference
+preconditioner_lag = 20
