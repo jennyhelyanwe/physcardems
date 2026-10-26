@@ -1,5 +1,8 @@
 # PhysCardEMS: Physiological Cardiac Electro-Mechanics Solver
 
+
+> **New to physcardems?** Start with the [getting started tutorial](docs/getting_started.md): installation and your first 3D left ventricle simulation, step by step.
+
 PhysCardEMS is a FEniCSx-based framework for fully coupled cardiac electromechanics simulations, designed around physiological calibration and validation. It couples monodomain electrophysiology with active and passive myocardial mechanics and a five-phase cardiac cycle, and evaluates simulations against executable calibration and validation criteria derived from the ASME V&V40 framework ([Wang et al., eLife, 2025](https://elifesciences.org/reviewed-preprints/106555)).
 
 The framework builds on [`simcardemsx`](https://github.com/ComputationalPhysiology/simcardemsx), [`fenicsx-pulse`](https://github.com/finsberg/fenicsx-pulse) and [`fenicsx-beat`](https://github.com/finsberg/fenicsx-beat).
