@@ -1,0 +1,5 @@
+# MVP calibration: LVEF (Tref) and peak pressure (p_init, R_c), beat 1 only
+[factors]
+"land.scales.Tref" = [4.0, 10.0, "lin"]
+"circulation.lv.windkessel.p_init_pa" = [8000.0, 11500.0, "lin"]
+"circulation.lv.windkessel.characteristic_impedance_mmhg_s_per_ml" = [0.02, 0.07, "lin"]
