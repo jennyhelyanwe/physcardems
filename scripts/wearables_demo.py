@@ -5,7 +5,8 @@ Usage (from the repository root, inside the container):
     python3 scripts/wearables_demo.py runs/<case>/<run> --lat0 <first activation, ms>
 Works with LV ellipsoid and BiV logs (systemic side only for the BiV). If the run folder holds
 a pseudo-ECG csv (a file name containing "ecg"), lead II is shown on top.
-Writes wearables.png and wearables.json to the run folder (the current folder for --synthetic).
+Writes wearables.png and wearables.json to the run folder (the current folder for --synthetic),
+plus traces.js for demo.html when a run folder is given.
 """
 import argparse
 import json
@@ -28,6 +29,67 @@ def load_ecg(run_dir):
     names = e.dtype.names
     lead = "II" if "II" in names else names[1]
     return files[0].name, np.asarray(e[names[0]], float), np.asarray(e[lead], float), lead
+
+
+PHASES = ["diastolic filling", "isovolumic contraction", "ejection", "isovolumic relaxation", "filling"]
+
+
+def export_traces(run_dir, beat, sig, period_ms, comp, dt_out=2.0):
+    """Write traces.js (window.TRACES = {...}) for demo.html.
+
+    Everything sits on one grid of absolute simulation time, 0..period_ms, the same clock as
+    log.csv, pseudo_ecg.csv and the movie, so the page maps video time straight onto it.
+    """
+    run_dir = Path(run_dir)
+    log = np.genfromtxt(run_dir / "log.csv", delimiter=",", names=True)
+    t = np.arange(0.0, period_ms + 0.5 * dt_out, dt_out)
+    kpa = 7.50062  # kPa -> mmHg
+    lin = lambda col: np.interp(t, log["t_ms"], log[col])
+    out = dict(t_ms=t, period_ms=period_ms)
+    out["V_lv"], out["P_lv"] = lin("V_lv_mL"), lin("P_lv_kPa") * kpa
+    out["V_rv"], out["P_rv"] = lin("V_rv_mL"), lin("P_rv_kPa") * kpa
+    out["phase"] = np.interp(t, log["t_ms"], log["phase_lv"]).round().astype(int)
+    out["phase_names"] = PHASES
+
+    # wearable signals live on beat["t_s"], measured from first activation: shift to absolute time
+    t_abs = beat["t_s"] * 1e3 + beat["t_act_ms"]
+    per = lambda y: np.interp(t, t_abs, np.asarray(y, float), period=period_ms)
+    norm = lambda y: (y - y.min()) / (y.max() - y.min())
+    out["ppg_finger"], out["ppg_wrist"] = norm(per(sig["finger"])), norm(per(sig["wrist"]))
+    out["p_aortic"] = per(sig["p_root"]) / MMHG
+    out["p_radial"] = per(sig["flows"]["r_radial"]["p_out"]) / MMHG
+    out["icg"] = per(sig["mdzdt"])
+    out["t_act_ms"] = beat["t_act_ms"]
+
+    ecg_files = sorted(p for p in run_dir.glob("*.csv") if "ecg" in p.name.lower())
+    if ecg_files:
+        e = np.genfromtxt(ecg_files[0], delimiter=",", names=True)
+        for lead in ("II", "V1", "V5"):
+            if lead in e.dtype.names:
+                out["ecg_" + lead] = np.interp(t, e[e.dtype.names[0]], e[lead])
+
+    edv, esv = log["V_lv_mL"].max(), log["V_lv_mL"].min()
+    wall = log["wall_s"][np.isfinite(log["wall_s"])]
+    out["stats"] = dict(
+        EF_lv=100 * (edv - esv) / edv, SV_lv=edv - esv, EDV_lv=edv,
+        Pmax_lv=np.nanmax(log["P_lv_kPa"]) * kpa,
+        dt_ms=float(np.median(np.diff(log["t_ms"]))), n_steps=len(log),
+        newton_mean=float(np.nanmean(log["newton_its"])), wall_h=float(wall.sum() / 3600),
+        # compliance=comp, **{k: float(v) for k, v in sig["features"].items()})
+        compliance = comp,
+        ** {k: float(v) for k, v in sig["features"].items() if np.ndim(v) == 0})
+    def js(v):
+        if isinstance(v, np.ndarray):
+            return [round(float(x), 5) for x in v]
+        if isinstance(v, dict):
+            return {k: js(x) for k, x in v.items()}
+        if isinstance(v, (np.floating, np.integer)):
+            return float(v)
+        return v
+
+    path = run_dir / "traces.js"
+    path.write_text("window.TRACES = " + json.dumps(js(out)) + ";\n")
+    print(f"wrote {path}")
 
 
 def main():
@@ -108,6 +170,8 @@ def main():
     record = dict(features=feat, notes=sig["notes"], lat0_ms=args.lat0,
                   stiffness_scale=args.stiffness_scale, compliance_ml_per_mmhg=comp)
     (out_dir / "wearables.json").write_text(json.dumps(record, indent=2, default=float))
+    if not args.synthetic:
+        export_traces(args.run, beat, sig, pcl, comp)
     for k, v in feat.items():
         print(f"{k:24s} {np.round(v, 1)}")
     for note in sig["notes"]:

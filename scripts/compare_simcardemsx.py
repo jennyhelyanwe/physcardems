@@ -19,12 +19,12 @@ CAV = ("lv", "rv")
 def load(run_dir, code):
     d = pd.read_csv(Path(run_dir) / "log.csv")
     d.columns = [c.strip().lstrip("#").strip() for c in d.columns]
-    if code == "simcardemsx":
-        # physcardems logs the phase after the step's switch, which simcardemsx calls next_phase_*
-        for c in CAV:
+    # Henrik's example logs the phase after the step's switch as next_phase_*; physcardems'
+    # own log (old and new back end) already calls that phase_*.
+    for c in CAV:
+        if f"next_phase_{c}" in d.columns:
             d[f"phase_{c}"] = d[f"next_phase_{c}"]
     return d
-
 
 def entries(ph, p):
     """Row indices where the phase becomes p."""
