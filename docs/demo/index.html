@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cardiac digital twin: live beat</title>
+<script src="traces.js"></script>
+<style>
+  :root{
+    --bg:#05070b; --panel:#0b0f16; --line:#1a2230; --txt:#e6ebf2; --dim:#7d8898; --faint:#3a4556;
+    --ecg:#5cf2a6; --lv:#ff6b6b; --rv:#7aa7ff; --finger:#ff8fd0; --wrist:#ffc46b; --acc:#7ee0ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--txt);
+    font-family:"Inter","Segoe UI","Helvetica Neue",Arial,sans-serif;overflow:hidden}
+  .view{position:absolute;inset:0;display:grid;padding:2.2vh 2.2vw;gap:1.6vh 1.4vw;transition:opacity .6s ease}
+  .hidden{opacity:0;pointer-events:none}
+
+  /* ---------- live view ---------- */
+  #live{grid-template-columns:57fr 43fr;grid-template-rows:auto 1fr auto}
+  header{grid-column:1/3;display:flex;justify-content:space-between;align-items:flex-end;
+    border-bottom:1px solid var(--line);padding-bottom:1.2vh}
+  h1{font-weight:300;font-size:2.3vw;letter-spacing:.02em}
+  h1 b{font-weight:600}
+  .sub{color:var(--dim);font-size:.95vw;margin-top:.4vh;letter-spacing:.04em}
+  .who{text-align:right;color:var(--dim);font-size:.9vw;line-height:1.5}
+  .who b{color:var(--txt);font-weight:500}
+
+  .heart{position:relative;border-radius:14px;overflow:hidden;background:#000;border:1px solid var(--line)}
+  .heart video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center}
+  .tag{position:absolute;font-size:.8vw;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  .clock{position:absolute;left:1.4vw;top:1.6vh}
+  .clock .t{font-size:2.6vw;font-weight:200;font-variant-numeric:tabular-nums}
+  .clock .t small{font-size:1vw;color:var(--dim);margin-left:.3vw}
+  .phase{font-size:1.15vw;color:var(--acc);margin-top:.4vh;letter-spacing:.03em;min-height:1.6vw}
+  .slow{right:1.4vw;top:2vh}
+  .cbar{position:absolute;right:1.6vw;bottom:2.4vh;display:flex;align-items:center;gap:.6vw;font-size:.75vw;color:var(--dim)}
+  .cbar i{display:block;width:.55vw;height:14vh;border-radius:3px;
+    background:linear-gradient(to top,#3b4cc0,#8db0fe,#dddddd,#f49a7b,#b40426)}
+  .cbar div{display:flex;flex-direction:column;justify-content:space-between;height:14vh}
+
+  .traces{display:grid;grid-template-rows:1fr 1.35fr 1fr;gap:1.4vh;min-height:0}
+  .card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;min-height:0;overflow:hidden}
+  .card canvas{position:absolute;inset:0;width:100%;height:100%}
+  .card .lab{position:absolute;left:1vw;top:1vh;font-size:.78vw;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);z-index:2}
+  .card .val{position:absolute;right:1vw;top:.7vh;font-size:1.05vw;font-variant-numeric:tabular-nums;z-index:2;text-align:right}
+  .key{font-size:.75vw;color:var(--dim)} .key span{margin-left:.8vw}
+  .dot{display:inline-block;width:.6vw;height:.6vw;border-radius:50%;margin-right:.3vw;vertical-align:middle}
+
+  footer{grid-column:1/3;display:grid;grid-template-columns:57fr 43fr;gap:1.4vw;align-items:center}
+  .timeline{position:relative;height:3.4vh;display:flex;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+  .timeline div{display:flex;align-items:center;justify-content:center;font-size:.72vw;color:var(--dim);
+    border-right:1px solid var(--bg);white-space:nowrap;overflow:hidden;transition:background .2s,color .2s}
+  .timeline div.on{color:#05070b;background:var(--acc)}
+  .timeline .head{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 8px #fff}
+  .chips{display:flex;gap:.7vw;justify-content:flex-end}
+  .chip{border:1px solid var(--line);border-radius:10px;padding:.6vh .8vw;text-align:center;min-width:5.6vw;background:var(--panel)}
+  .chip b{display:block;font-size:1.25vw;font-weight:400;font-variant-numeric:tabular-nums}
+  .chip span{font-size:.62vw;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+
+  /* ---------- methods view ---------- */
+  #methods{grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr auto}
+  #methods header{grid-column:1/3}
+  .eqs{display:flex;flex-direction:column;gap:1.3vh;justify-content:center}
+  .eq{display:grid;grid-template-columns:12vw 1fr;align-items:center;gap:1vw;
+    border-left:3px solid var(--c,var(--acc));padding:.8vh 0 .8vh 1vw;background:linear-gradient(90deg,rgba(255,255,255,.03),transparent)}
+  .eq h3{font-size:1vw;font-weight:500}
+  .eq h3 small{display:block;font-weight:300;color:var(--dim);font-size:.75vw;margin-top:.3vh;letter-spacing:.03em}
+  .eq .m{font-size:1.35vw;overflow:hidden} .eq .m math{display:block;text-align:left}
+  .loop{display:flex;flex-direction:column;justify-content:center;align-items:center}
+  .loop svg{width:100%;max-height:62vh}
+  .loop p{color:var(--dim);font-size:.85vw;text-align:center;max-width:36vw;line-height:1.5;margin-top:1vh}
+  .numbers{grid-column:1/3;display:flex;gap:.8vw;justify-content:center}
+  .numbers .chip{min-width:9vw}
+  .ctrl{position:absolute;left:1.4vw;bottom:2vh;display:flex;gap:.5vw;z-index:4}
+  .btn{font:inherit;font-size:.85vw;color:var(--txt);background:rgba(11,15,22,.75);border:1px solid var(--line);
+    border-radius:999px;padding:.7vh 1vw;cursor:pointer;letter-spacing:.04em;transition:border-color .2s,background .2s}
+  .btn:hover{border-color:var(--acc);background:rgba(126,224,255,.08)}
+  .btn.go{border-color:var(--acc);color:var(--acc)}
+  .back{position:fixed;left:2.2vw;bottom:2.4vh;z-index:6}
+  .hint{position:fixed;right:1vw;bottom:.6vh;font-size:.65vw;color:var(--faint);z-index:5}
+</style>
+</head>
+<body>
+
+<!-- ======================= LIVE VIEW ======================= -->
+<section id="live" class="view">
+  <header>
+    <div>
+      <h1><b>Cardiac digital twin</b> &nbsp;·&nbsp; one heartbeat, from cell to wrist</h1>
+      <div class="sub">BIVENTRICULAR ELECTROMECHANICS &nbsp;→&nbsp; CIRCULATION &nbsp;→&nbsp; SIMULATED ECG, PRESSURE–VOLUME AND PPG</div>
+    </div>
+    <div class="who"><b>Dr Jenny Wang</b><br>Biomedical Engineering · City St George's, University of London</div>
+  </header>
+
+  <div class="heart">
+    <video id="vid" src="result.mp4" autoplay muted loop playsinline></video>
+    <div class="clock"><div class="t" id="tclock">0<small>ms</small></div><div class="phase" id="tphase"></div></div>
+    <div class="tag slow" id="slow"></div>
+    <div class="ctrl">
+      <button class="btn" id="bBack" title="step back (←)">◀</button>
+      <button class="btn" id="bPlay" title="play / pause (space)">❚❚</button>
+      <button class="btn" id="bFwd" title="step forward (→)">▶</button>
+      <button class="btn go" id="bMeth" title="methods (M)">Under the hood →</button>
+    </div>
+    <div class="cbar"><i></i><div><span>+40 mV</span><span>transmembrane potential</span><span>−86 mV</span></div></div>
+  </div>
+
+  <div class="traces">
+    <div class="card"><div class="lab">ECG · lead II</div><canvas id="cEcg"></canvas></div>
+    <div class="card"><div class="lab">Pressure–volume loop</div>
+      <div class="val" id="vPV"></div><canvas id="cPV"></canvas></div>
+    <div class="card"><div class="lab">PPG · wearable sites</div>
+      <div class="val key"><span><i class="dot" style="background:var(--wrist)"></i>wrist</span><span><i class="dot" style="background:var(--finger)"></i>finger</span></div>
+      <canvas id="cPPG"></canvas></div>
+  </div>
+
+  <footer>
+    <div class="timeline" id="timeline"></div>
+    <div class="chips" id="chips"></div>
+  </footer>
+</section>
+
+<!-- ======================= METHODS VIEW ======================= -->
+<section id="methods" class="view hidden">
+  <header>
+    <div>
+      <h1><b>Under the hood</b> &nbsp;·&nbsp; coupled multiphysics, solved by finite elements</h1>
+      <div class="sub">EACH TIME STEP COUPLES CELL BIOPHYSICS, TISSUE ELECTRICS, LARGE-DEFORMATION MECHANICS AND THE CIRCULATION</div>
+    </div>
+    <div class="who"><b>FEniCSx · PETSc · MPI</b><br>open-source, HPC parallel</div>
+  </header>
+
+  <div class="eqs">
+    <div class="eq" style="--c:#ffd36b"><h3>Cell<small>ToR-ORd ion channels</small></h3>
+      <div class="m"><span class="katex"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mfrac><mrow><mi>d</mi><mi mathvariant="bold">s</mi></mrow><mrow><mi>d</mi><mi>t</mi></mrow></mfrac><mo>=</mo><mi mathvariant="bold">f</mi><mo stretchy="false">(</mo><mi>v</mi><mo separator="true">,</mo><mi mathvariant="bold">s</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\dfrac{d\mathbf{s}}{dt} = \mathbf{f}(v,\mathbf{s})</annotation></semantics></math></span></div></div>
+    <div class="eq" style="--c:var(--ecg)"><h3>Tissue electrics<small>monodomain reaction–diffusion</small></h3>
+      <div class="m"><span class="katex"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>χ</mi><mo fence="false" stretchy="true" minsize="1.8em" maxsize="1.8em">(</mo><msub><mi>C</mi><mi>m</mi></msub><mfrac><mrow><mi mathvariant="normal">∂</mi><mi>v</mi></mrow><mrow><mi mathvariant="normal">∂</mi><mi>t</mi></mrow></mfrac><mo>+</mo><msub><mi>I</mi><mrow><mi mathvariant="normal">i</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">n</mi></mrow></msub><mo stretchy="false">(</mo><mi>v</mi><mo separator="true">,</mo><mi mathvariant="bold">s</mi><mo stretchy="false">)</mo><mo fence="false" stretchy="true" minsize="1.8em" maxsize="1.8em">)</mo><mo>=</mo><mi mathvariant="normal">∇</mi><mtext> ⁣</mtext><mo>⋅</mo><mtext> ⁣</mtext><mo fence="false" stretchy="true" minsize="1.2em" maxsize="1.2em">(</mo><mi mathvariant="bold">M</mi><mtext> </mtext><mi mathvariant="normal">∇</mi><mi>v</mi><mo fence="false" stretchy="true" minsize="1.2em" maxsize="1.2em">)</mo></mrow><annotation encoding="application/x-tex">\chi\Big(C_m \dfrac{\partial v}{\partial t} + I_{\mathrm{ion}}(v,\mathbf{s})\Big) = \nabla\!\cdot\!\big(\mathbf{M}\,\nabla v\big)</annotation></semantics></math></span></div></div>
+    <div class="eq" style="--c:#ff9b6b"><h3>Contraction<small>Land model, stretch feedback</small></h3>
+      <div class="m"><span class="katex"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mfrac><mrow><mi>d</mi><mi mathvariant="bold">z</mi></mrow><mrow><mi>d</mi><mi>t</mi></mrow></mfrac><mo>=</mo><mi mathvariant="bold">g</mi><mo fence="false" stretchy="true" minsize="1.2em" maxsize="1.2em">(</mo><msub><mrow><mi mathvariant="normal">C</mi><mi mathvariant="normal">a</mi></mrow><mi>i</mi></msub><mo separator="true">,</mo><mi>λ</mi><mo separator="true">,</mo><mover accent="true"><mi>λ</mi><mo>˙</mo></mover><mo separator="true">,</mo><mi mathvariant="bold">z</mi><mo fence="false" stretchy="true" minsize="1.2em" maxsize="1.2em">)</mo><mo separator="true">,</mo><mspace width="1em"/><msub><mi>T</mi><mi>a</mi></msub><mo>=</mo><msub><mi>T</mi><mi>a</mi></msub><mo stretchy="false">(</mo><mi mathvariant="bold">z</mi><mo separator="true">,</mo><mi>λ</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\dfrac{d\mathbf{z}}{dt} = \mathbf{g}\big(\mathrm{Ca}_i,\lambda,\dot\lambda,\mathbf{z}\big),\quad T_a = T_a(\mathbf{z},\lambda)</annotation></semantics></math></span></div></div>
+    <div class="eq" style="--c:var(--lv)"><h3>Mechanics<small>hyperelastic, active stress</small></h3>
+      <div class="m"><span class="katex"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>ρ</mi><mtext> </mtext><mover accent="true"><mi mathvariant="bold">u</mi><mo>¨</mo></mover><mo>=</mo><mi mathvariant="normal">∇</mi><mtext> ⁣</mtext><mo>⋅</mo><mtext> ⁣</mtext><mi mathvariant="bold">P</mi><mo separator="true">,</mo><mspace width="2em"/><mi mathvariant="bold">P</mi><mo>=</mo><mfrac><mrow><mi mathvariant="normal">∂</mi><mi mathvariant="normal">Ψ</mi></mrow><mrow><mi mathvariant="normal">∂</mi><mi mathvariant="bold">F</mi></mrow></mfrac><mo>+</mo><msub><mi>T</mi><mi>a</mi></msub><mtext> </mtext><mi mathvariant="bold">F</mi><msub><mi mathvariant="bold">f</mi><mn>0</mn></msub><mtext> ⁣</mtext><mo>⊗</mo><mtext> ⁣</mtext><msub><mi mathvariant="bold">f</mi><mn>0</mn></msub></mrow><annotation encoding="application/x-tex">\rho\,\ddot{\mathbf{u}} = \nabla\!\cdot\!\mathbf{P},\qquad \mathbf{P} = \dfrac{\partial\Psi}{\partial\mathbf{F}} + T_a\,\mathbf{F}\mathbf{f}_0\!\otimes\!\mathbf{f}_0</annotation></semantics></math></span></div></div>
+    <div class="eq" style="--c:var(--rv)"><h3>Circulation<small>cavity constraint, Windkessel</small></h3>
+      <div class="m"><span class="katex"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>V</mi><mrow><mi mathvariant="normal">c</mi><mi mathvariant="normal">a</mi><mi mathvariant="normal">v</mi></mrow></msub><mo stretchy="false">(</mo><mi mathvariant="bold">u</mi><mo stretchy="false">)</mo><mo>=</mo><mi>V</mi><mo separator="true">,</mo><mspace width="2em"/><mi>C</mi><mtext> </mtext><mover accent="true"><mi>p</mi><mo>˙</mo></mover><mo>+</mo><mfrac><mi>p</mi><mi>R</mi></mfrac><mo>=</mo><mi>Q</mi></mrow><annotation encoding="application/x-tex">V_{\mathrm{cav}}(\mathbf{u}) = V,\qquad C\,\dot p + \dfrac{p}{R} = Q</annotation></semantics></math></span></div></div>
+    <div class="eq" style="--c:var(--finger)"><h3>Arteries → sensor<small>1D network, PPG</small></h3>
+      <div class="m"><span class="katex"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi mathvariant="normal">∂</mi><mi>t</mi></msub><mi>A</mi><mo>+</mo><msub><mi mathvariant="normal">∂</mi><mi>x</mi></msub><mi>Q</mi><mo>=</mo><mn>0</mn><mo separator="true">,</mo><mspace width="2em"/><msub><mi mathvariant="normal">∂</mi><mi>t</mi></msub><mi>Q</mi><mo>+</mo><msub><mi mathvariant="normal">∂</mi><mi>x</mi></msub><mtext> ⁣</mtext><mo fence="false" stretchy="true" minsize="1.8em" maxsize="1.8em">(</mo><mfrac><msup><mi>Q</mi><mn>2</mn></msup><mi>A</mi></mfrac><mo fence="false" stretchy="true" minsize="1.8em" maxsize="1.8em">)</mo><mo>+</mo><mfrac><mi>A</mi><mi>ρ</mi></mfrac><mtext> </mtext><msub><mi mathvariant="normal">∂</mi><mi>x</mi></msub><mi>p</mi><mo>=</mo><mo>−</mo><msub><mi>K</mi><mi>R</mi></msub><mfrac><mi>Q</mi><mi>A</mi></mfrac></mrow><annotation encoding="application/x-tex">\partial_t A + \partial_x Q = 0,\qquad \partial_t Q + \partial_x\!\Big(\dfrac{Q^2}{A}\Big) + \dfrac{A}{\rho}\,\partial_x p = -K_R\dfrac{Q}{A}</annotation></semantics></math></span></div></div>
+  </div>
+
+  <div class="loop">
+    <svg viewBox="0 0 520 430" font-family="inherit">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#7d8898"/></marker>
+        <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <circle cx="260" cy="215" r="150" fill="none" stroke="#1a2230" stroke-width="2" stroke-dasharray="4 6"/>
+      <circle id="orbit" r="6" fill="#7ee0ff" filter="url(#glow)"/>
+      <text x="260" y="205" text-anchor="middle" fill="#e6ebf2" font-size="17" font-weight="300">one time step</text>
+      <text x="260" y="228" text-anchor="middle" fill="#7d8898" font-size="12" id="dtlabel">Δt</text>
+      <!-- nodes -->
+      <g font-size="13" text-anchor="middle">
+        <g transform="translate(260,62)"><rect x="-92" y="-24" width="184" height="48" rx="10" fill="#0b0f16" stroke="#ffd36b"/>
+          <text y="-3" fill="#e6ebf2">1 · Cell ODEs</text><text y="14" fill="#7d8898" font-size="11">ions, Ca²⁺ at every node</text></g>
+        <g transform="translate(418,170)"><rect x="-92" y="-24" width="184" height="48" rx="10" fill="#0b0f16" stroke="#5cf2a6"/>
+          <text y="-3" fill="#e6ebf2">2 · Diffusion PDE</text><text y="14" fill="#7d8898" font-size="11">FE solve → activation wave</text></g>
+        <g transform="translate(372,350)"><rect x="-92" y="-24" width="184" height="48" rx="10" fill="#0b0f16" stroke="#ff9b6b"/>
+          <text y="-3" fill="#e6ebf2">3 · Active tension</text><text y="14" fill="#7d8898" font-size="11">Land model → Tₐ</text></g>
+        <g transform="translate(148,350)"><rect x="-92" y="-24" width="184" height="48" rx="10" fill="#0b0f16" stroke="#ff6b6b"/>
+          <text y="-3" fill="#e6ebf2">4 · Mechanics</text><text y="14" fill="#7d8898" font-size="11">nonlinear Newton solve</text></g>
+        <g transform="translate(102,170)"><rect x="-92" y="-24" width="184" height="48" rx="10" fill="#0b0f16" stroke="#7aa7ff"/>
+          <text y="-3" fill="#e6ebf2">5 · Circulation</text><text y="14" fill="#7d8898" font-size="11">valves, pressure, volume</text></g>
+      </g>
+      <g stroke="#7d8898" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+        <path d="M352,72 Q400,95 412,142"/>
+        <path d="M418,196 Q412,280 395,322"/>
+        <path d="M278,358 L244,358"/>
+        <path d="M118,322 Q96,260 98,198"/>
+        <path d="M120,144 Q140,86 166,70"/>
+      </g>
+      <path d="M190,330 Q260,280 330,330" stroke="#ff9b6b" stroke-width="1.2" fill="none" stroke-dasharray="3 4" marker-end="url(#ar)"/>
+      <text x="260" y="296" text-anchor="middle" fill="#ff9b6b" font-size="11">stretch λ feeds back</text>
+    </svg>
+    <p>The cell and tissue equations are split and advanced in turn. Mechanics is a large-deformation
+       nonlinear solve each step, with the cavity pressure found so the heart's volume matches the circulation.
+       The simulated aortic flow then drives a 1D arterial network to predict what a wrist or finger sensor sees.</p>
+  </div>
+
+  <div class="numbers" id="numbers"></div>
+  <button class="btn go back" id="bLive" title="back (M)">← Live beat</button>
+</section>
+
+<div class="hint">M methods · space pause · ←/→ step (shift: ×5) · F fullscreen</div>
+
+<script>
+/* ===================== settings you may want to tweak ===================== */
+const CONFIG = {
+  videoZoom: 1.25,      // crops the black margins and ParaView's own colour bar
+  videoShiftX: 0,       // % shift if the heart sits off centre after zoom
+  timeOffsetMs: 0,      // add if the movie's first frame is not t = 0 of the log
+  showRV: false,        // RV loop on the PV plot
+  cores: "",            // e.g. "128 cores" for the methods numbers row; blank hides it
+};
+/* ========================================================================== */
+
+const T = window.TRACES;
+if (!T) document.body.innerHTML = '<p style="padding:4vw;font-size:1.4vw">traces.js not found next to demo.html. Run scripts/wearables_demo.py on the run folder first.</p>';
+const P = T.period_ms, N = T.t_ms.length, dt = T.t_ms[1] - T.t_ms[0];
+const vid = document.getElementById('vid');
+vid.style.transform = `scale(${CONFIG.videoZoom}) translateX(${CONFIG.videoShiftX}%)`;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- canvases ---------- */
+function setup(id){
+  const c = document.getElementById(id), ctx = c.getContext('2d');
+  const fit = () => { const r = c.getBoundingClientRect(), d = devicePixelRatio || 1;
+    c.width = r.width * d; c.height = r.height * d; ctx.setTransform(d,0,0,d,0,0); c._w = r.width; c._h = r.height; };
+  fit(); addEventListener('resize', fit); return [c, ctx];
+}
+const [cE, xE] = setup('cEcg'), [cV, xV] = setup('cPV'), [cP, xP] = setup('cPPG');
+const range = a => { let lo = Infinity, hi = -Infinity; for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; } return [lo, hi]; };
+
+function strip(c, ctx, series, k){                // series: [{y, col}], k = index of "now"
+  const w = c._w, h = c._h, padT = h*0.22, padB = h*0.1, padX = w*0.03;
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle = '#141b26'; ctx.lineWidth = 1;
+  for (let i = 1; i < 8; i++){ const x = padX + (w-2*padX)*i/8; ctx.beginPath(); ctx.moveTo(x,padT*0.7); ctx.lineTo(x,h-padB*0.5); ctx.stroke(); }
+  for (const s of series){
+    const [lo, hi] = s.r || range(s.y), X = i => padX + (w-2*padX)*i/(N-1), Y = v => h-padB - (h-padT-padB)*(v-lo)/(hi-lo||1);
+    ctx.lineWidth = 1.4; ctx.strokeStyle = s.col + '33'; ctx.beginPath();
+    s.y.forEach((v,i) => i ? ctx.lineTo(X(i),Y(v)) : ctx.moveTo(X(i),Y(v))); ctx.stroke();
+    ctx.lineWidth = 2.2; ctx.strokeStyle = s.col; ctx.shadowColor = s.col; ctx.shadowBlur = 10; ctx.beginPath();
+    for (let i = 0; i <= k; i++) i ? ctx.lineTo(X(i),Y(s.y[i])) : ctx.moveTo(X(i),Y(s.y[i])); ctx.stroke();
+    ctx.shadowBlur = 18; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(k),Y(s.y[k]),3.5,0,7); ctx.fill(); ctx.shadowBlur = 0;
+  }
+}
+
+const vAll = T.V_lv.concat(CONFIG.showRV ? T.V_rv : []), pAll = T.P_lv.concat(CONFIG.showRV ? T.P_rv : []);
+const [v0, v1] = range(vAll), [p0, p1] = range(pAll);
+function pv(k){
+  const c = cV, ctx = xV, w = c._w, h = c._h, L = w*0.13, R = w*0.05, Tp = h*0.17, B = h*0.16;
+  const X = v => L + (w-L-R)*(v-v0+5)/(v1-v0+10), Y = p => h-B - (h-Tp-B)*(p-p0+5)/(p1-p0+10);
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle = '#7d8898'; ctx.font = `${Math.max(10,w*0.022)}px Inter, sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText('volume (mL)', L+(w-L-R)/2, h-h*0.03);
+  ctx.save(); ctx.translate(w*0.035, Tp+(h-Tp-B)/2); ctx.rotate(-Math.PI/2); ctx.fillText('pressure (mmHg)',0,0); ctx.restore();
+  ctx.strokeStyle = '#1a2230'; ctx.lineWidth = 1; ctx.font = `${Math.max(9,w*0.019)}px Inter, sans-serif`;
+  for (let v = Math.ceil(v0/20)*20; v <= v1; v += 20){ ctx.beginPath(); ctx.moveTo(X(v),Tp); ctx.lineTo(X(v),h-B); ctx.stroke(); ctx.fillText(v, X(v), h-B+h*0.07); }
+  ctx.textAlign = 'right';
+  for (let p = 0; p <= p1; p += 40){ ctx.beginPath(); ctx.moveTo(L,Y(p)); ctx.lineTo(w-R,Y(p)); ctx.stroke(); ctx.fillText(p, L-6, Y(p)+4); }
+  const loops = [[T.V_lv, T.P_lv, css('--lv')]]; if (CONFIG.showRV) loops.push([T.V_rv, T.P_rv, css('--rv')]);
+  for (const [V, Pp, col] of loops){
+    ctx.lineWidth = 1.4; ctx.strokeStyle = col + '30'; ctx.beginPath();
+    V.forEach((v,i) => i ? ctx.lineTo(X(v),Y(Pp[i])) : ctx.moveTo(X(v),Y(Pp[i]))); ctx.closePath(); ctx.stroke();
+    const tail = Math.round(250/dt);              // a glowing comet tail of the last 250 ms
+    for (let j = tail; j > 0; j--){ const a = (k-j+N)%N, b = (k-j+1+N)%N;
+      ctx.strokeStyle = col; ctx.globalAlpha = 1 - j/tail; ctx.lineWidth = 2.6; ctx.shadowColor = col; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.moveTo(X(V[a]),Y(Pp[a])); ctx.lineTo(X(V[b]),Y(Pp[b])); ctx.stroke(); }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 20; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(V[k]),Y(Pp[k]),5,0,7); ctx.fill(); ctx.shadowBlur = 0;
+  }
+  document.getElementById('vPV').innerHTML =
+    `<span style="color:var(--lv)">LV</span> ${T.V_lv[k].toFixed(0)} mL · ${T.P_lv[k].toFixed(0)} mmHg`;
+}
+
+/* ---------- phase timeline, chips, numbers ---------- */
+const SHORT = ['filling', 'isovolumic', 'ejection', 'relaxation', 'filling'];
+const tl = document.getElementById('timeline'), segs = [];
+for (let i = 0, s = 0; i <= N; i++){
+  if (i === N || T.phase[i] !== T.phase[s]){
+    const d = document.createElement('div'); d.style.flex = i - s; d.textContent = SHORT[T.phase[s]] || T.phase_names[T.phase[s]];
+    d._n = i - s; tl.appendChild(d); segs.push(d); s = i; }
+}
+const head = document.createElement('span'); head.className = 'head'; tl.appendChild(head);
+
+const S = T.stats || {};
+const chip = (v, u, l) => `<div class="chip"><b>${v}<small style="font-size:.6em;color:var(--dim)"> ${u}</small></b><span>${l}</span></div>`;
+const fx = (v, d=0) => (v === undefined || !isFinite(v)) ? '–' : (+v).toFixed(d);
+document.getElementById('chips').innerHTML =
+  chip(fx(S.EF_lv), '%', 'LV ejection fraction') + chip(fx(S.SV_lv), 'mL', 'stroke volume') +
+  chip(fx(S.Pmax_lv), 'mmHg', 'peak LV pressure') + chip(fx(S.PAT_finger_ms), 'ms', 'pulse arrival · finger') +
+  chip(fx(S.PTT_finger_ms), 'ms', 'pulse transit · finger');
+document.getElementById('numbers').innerHTML =
+  chip(fx(S.dt_ms,1), 'ms', 'time step') + chip(fx(S.n_steps), '', 'steps per beat') +
+  chip(fx(S.newton_mean,1), '', 'Newton iterations / step') + chip(fx(S.wall_h,1), 'h', 'wall time per beat') +
+  (CONFIG.cores ? chip(CONFIG.cores, '', 'parallel') : '');
+document.getElementById('dtlabel').textContent = `Δt = ${fx(S.dt_ms,1)} ms, ${fx(S.n_steps)}× per beat`;
+
+/* ---------- main loop: video clock drives everything ---------- */
+const ecg = T.ecg_II, tE = document.getElementById('tclock'), tPh = document.getElementById('tphase');
+const orbit = document.getElementById('orbit');
+function frame(){
+  const dur = vid.duration || 1;
+  if (dur > 0) document.getElementById('slow').textContent = `${(dur*1000/P).toFixed(0)}× slow motion`;
+  const tm = ((vid.currentTime / dur) * P + CONFIG.timeOffsetMs + P) % P;
+  const k = Math.min(N-1, Math.round(tm / dt));
+  if (ecg) strip(cE, xE, [{y: ecg, col: css('--ecg')}], k);
+  strip(cP, xP, [{y: T.ppg_wrist, col: css('--wrist'), r:[-0.05,1.05]}, {y: T.ppg_finger, col: css('--finger'), r:[-0.05,1.05]}], k);
+  pv(k);
+  tE.innerHTML = `${tm.toFixed(0)}<small>ms</small>`;
+  tPh.textContent = T.phase_names[T.phase[k]];
+  head.style.left = `${100*tm/P}%`;
+  let acc = 0; segs.forEach(s => { const f = s._n; s.classList.toggle('on', k >= acc && k < acc + f); acc += f; });
+  const a = -Math.PI/2 + 2*Math.PI*tm/P; orbit.setAttribute('cx', 260 + 150*Math.cos(a)); orbit.setAttribute('cy', 215 + 150*Math.sin(a));
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- controls: buttons and keys ---------- */
+const STEP_MS = 10;                                   // one step = 10 ms of simulated time
+const views = () => { document.getElementById('live').classList.toggle('hidden'); document.getElementById('methods').classList.toggle('hidden'); };
+const playPause = () => { vid.paused ? vid.play() : vid.pause(); };
+const step = (dir, mult = 1) => {
+  vid.pause();
+  const d = vid.duration || 1, s = dir * mult * STEP_MS / P * d;
+  vid.currentTime = ((vid.currentTime + s) % d + d) % d;
+};
+vid.addEventListener('play',  () => document.getElementById('bPlay').textContent = '❚❚');
+vid.addEventListener('pause', () => document.getElementById('bPlay').textContent = '▶︎ play');
+document.getElementById('bMeth').onclick = views;
+document.getElementById('bLive').onclick = views;
+document.getElementById('bPlay').onclick = playPause;
+document.getElementById('bBack').onclick = e => step(-1, e.shiftKey ? 5 : 1);
+document.getElementById('bFwd').onclick  = e => step(+1, e.shiftKey ? 5 : 1);
+document.addEventListener('keydown', e => {
+  const k = e.key;
+  if (k === 'm' || k === 'M') views();
+  else if (k === ' ') { e.preventDefault(); playPause(); }
+  else if (k === 'ArrowRight' || k === 'ArrowLeft') { e.preventDefault(); step(k === 'ArrowRight' ? 1 : -1, e.shiftKey ? 5 : 1); }
+  else if (k === 'f' || k === 'F') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // keep keys working after a click
+});
+</script>
+</body>
+</html>
